@@ -1,0 +1,28 @@
+# Forzar HTTPS
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !https
+RewriteCond %{HTTP_HOST} !^localhost
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+Options -Indexes
+DirectoryIndex index.html
+
+# Segunda barrera: nada interno ni la base de datos accesible por web
+<FilesMatch "(?i)(\.sqlite3?|\.db|\.lock|config\.php|config\.example\.php|app-dir\.php|seed-demo\.php|\.md|\.csv)$">
+    Require all denied
+</FilesMatch>
+RedirectMatch 404 ^/(.*/)?(lib|data|tests|\.git)(/|$)
+
+# install.php usa estilos en línea
+<FilesMatch "^install\.php$">
+    Header always unset Content-Security-Policy
+</FilesMatch>
+
+# Cabeceras de seguridad (api.php agrega las suyas)
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Frame-Options "DENY"
+    Header always set Content-Security-Policy "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+</IfModule>

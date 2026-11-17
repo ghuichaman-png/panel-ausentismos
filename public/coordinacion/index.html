@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es" data-base="../">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Coordinación · Ausentismos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Outfit:wght@600&display=swap">
+  <link rel="stylesheet" href="../assets/app.css">
+</head>
+<body>
+<header class="barra">
+  <div class="barra-in">
+    <h1 id="titulo">Coordinación · Ausentismos</h1>
+    <label class="oculto" id="rp-wrap"><span class="solo-lector">Resuelto por</span>
+      <input id="resuelto-por" type="text" maxlength="60" placeholder="Resuelto por (iniciales)" autocomplete="off"></label>
+    <button type="button" class="btn btn-chico btn-claro oculto" id="salir">Salir</button>
+  </div>
+</header>
+
+<section id="login" class="login oculto" aria-labelledby="h-login">
+  <h1 id="h-login">Ingreso de coordinación</h1>
+  <form id="login-form" class="tarjeta">
+    <label class="campo"><span>Clave del equipo de coordinación</span><input type="password" id="login-clave" autocomplete="current-password" required></label>
+    <p id="login-error" class="msg-error" role="alert"></p>
+    <button class="btn btn-primario" type="submit">Ingresar</button>
+  </form>
+  <p class="nota"><a href="../">← Volver al calendario público</a></p>
+</section>
+
+<div id="app" class="oculto">
+  <nav class="tabs" id="tabs" aria-label="Secciones de coordinación"></nav>
+  <main id="sec" tabindex="-1"></main>
+</div>
+<script src="../assets/common.js"></script>
+<script src="../assets/coord.js"></script>
+</body>
+</html>

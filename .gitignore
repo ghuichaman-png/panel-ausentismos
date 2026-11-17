@@ -1,0 +1,15 @@
+# Configuración y datos reales: NUNCA al repositorio
+config.php
+dev-data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+install.lock
+
+# Nómina real (contiene RUT de funcionarios)
+nomina-hpm.csv
+
+# Solo de tu equipo
+iniciar-local.bat
+.claude/
+ausentismos-subir.zip
