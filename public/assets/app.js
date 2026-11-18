@@ -137,7 +137,7 @@
     mostrarEl($('w-hasta'), t === 'FL');
     mostrarEl($('f-frac-box'), t === 'ADM');
     mostrarEl($('w-comentario'), !!(j && t));
-    mostrarEl($('f-turn'), j === 'turnante' && (t === 'FL' || t === 'ADM'));
+    mostrarEl($('f-turn'), j === 'turnante' && !!t); // FL, ADM y CT necesitan turno y unidad por fecha
     mostrarEl($('f-defaults'), j === 'turnante' && t === 'FL');
     mostrarEl($('f-ct'), j === 'turnante' && t === 'CT');
     $('l-desde').textContent = t === 'FL' ? 'Desde' : t === 'CT' ? 'Fecha del turno que cedes' : 'Fecha';
