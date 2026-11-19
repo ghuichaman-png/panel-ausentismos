@@ -21,6 +21,7 @@
 <nav class="nav oculto" aria-label="Secciones" id="nav">
   <a href="#/" id="nav-cal">Calendario</a>
   <a href="#/mis" id="nav-mis">Mis solicitudes</a>
+  <a href="#/turnos" id="nav-turnos">Mis turnos</a>
   <a href="#/perfil" id="nav-perfil">Mi perfil</a>
   <a href="coordinacion/" id="nav-coord" class="oculto">Coordinación</a>
 </nav>
@@ -92,28 +93,20 @@
       </div>
 
       <div id="f-turn" class="oculto">
-        <div id="f-defaults" class="tarjeta">
-          <h3>Para todos los días</h3>
-          <div class="dos-col">
-            <label class="campo"><span>Turno</span><select id="fd-turno"><option value="largo">Largo</option><option value="noche">Noche (fecha en que comienza)</option></select></label>
-            <label class="campo"><span>Unidad del turno</span><select id="fd-unidad"></select></label>
-          </div>
-          <label class="campo"><span>¿Quién cubre tu turno?</span><input id="fd-reemplazo" type="text" maxlength="120" placeholder="Nombre de quien te cubre"></label>
-          <p class="ayuda">Puedes ajustar cada día abajo.</p>
-        </div>
-        <div id="f-dias" class="dias-turno"></div>
+        <label class="campo oculto" id="ft-w-turno"><span>Tu turno</span><select id="ft-turno"></select></label>
+        <div class="campo oculto" id="ft-w-reemp"><span>¿Quién cubre tu turno?</span><div><input id="ft-reemp" type="text" placeholder="Escribe un nombre de la nómina"></div></div>
+        <div class="campo oculto" id="ft-w-todos"><span>¿Quién cubre tus turnos?</span><div><input id="ft-todos" type="text" placeholder="Escribe un nombre de la nómina"></div>
+          <p class="ayuda">Se aplica a todos tus turnos de esas fechas; abajo puedes elegir otra persona para alguno.</p></div>
+        <div id="ft-lista" class="dias-turno"></div>
+        <p id="ft-vacio" class="aviso aviso-info oculto"></p>
       </div>
 
       <div id="f-ct" class="tarjeta oculto">
         <h3>Cambio de turno</h3>
-        <label class="campo"><span>¿Con quién cambias?</span><input id="fc-con" type="text" maxlength="120" placeholder="Nombre de la persona"></label>
-        <p class="etiqueta">Devolución (opcional)</p>
-        <div class="dos-col">
-          <label class="campo"><span>Fecha de devolución</span><input type="date" id="fc-fecha"></label>
-          <label class="campo"><span>Turno de devolución</span><select id="fc-turno"><option value="">—</option><option value="largo">Largo</option><option value="noche">Noche</option></select></label>
-        </div>
+        <div class="campo"><span>¿Con quién cambias?</span><div><input id="fc-con" type="text" placeholder="Escribe un nombre de la nómina"></div>
+          <p class="ayuda">Conversa antes el cambio con tu compañero: coordinación solo lo autoriza.</p></div>
+        <label class="campo"><span>Turno de devolución (opcional)</span><select id="fc-dev"><option value="">Sin devolución</option></select></label>
       </div>
-
       <label class="campo oculto" id="w-comentario"><span>Comentario (opcional)</span><textarea id="f-comentario" maxlength="500"></textarea></label>
 
       <div id="f-resumen" class="vista" aria-live="polite"></div>
@@ -143,6 +136,14 @@
     <h1 id="h-mis">Mis solicitudes</h1>
     <p id="m-error" class="msg-error" role="alert"></p>
     <div id="m-lista" class="vista"></div>
+  </section>
+
+  <!-- Mis turnos -->
+  <section id="v-turnos" class="vista oculto" aria-labelledby="h-turnos">
+    <h1 id="h-turnos">Mis turnos</h1>
+    <p id="t-error" class="msg-error" role="alert"></p>
+    <div id="t-mios" class="vista"></div>
+    <div id="t-cubro" class="vista"></div>
   </section>
 
   <!-- Mi perfil -->

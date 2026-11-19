@@ -31,6 +31,7 @@ $rutas = [
     ['POST', 'solicitudes/(\d+)/anular',       'h_anular',                  'sesion'],
     ['GET',  'saldos/mios',                    'h_saldos_mios',             'sesion'],
     ['GET',  'turnos/mios',                    'h_turnos_mios',             'sesion'],
+    ['GET',  'turnos/de/(\d+)',                'h_turnos_de',               'sesion'],
 
     ['GET',  'coord/solicitudes',              'h_coord_solicitudes',       'coord'],
     ['POST', 'coord/solicitudes/(\d+)/resolver', 'h_coord_resolver',        'coord'],

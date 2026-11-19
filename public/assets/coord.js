@@ -7,7 +7,7 @@
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
   const S = { equipos: [], sec: 'pend', cal: { mes: null, vista: null } };
 
-  const SECCIONES = [['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['nom', 'Nómina'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['exp', 'Exportar y respaldo']];
+  const SECCIONES = [['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['exp', 'Exportar y respaldo']];
 
   // ───────── Sesión (la de la persona; el ingreso está en la app principal) ─────────
   const api = AUS.api;
@@ -36,7 +36,7 @@
   function abrir(k) {
     const m = $('sec');
     vaciar(m);
-    ({ pend: secSolicitudes, todas: secSolicitudes, cal: secCalendario, res: secResumen, nom: secNomina, eq: secEquipos, fer: secFeriados, exp: secExportar }[k])(m, k)
+    ({ pend: secSolicitudes, todas: secSolicitudes, cal: secCalendario, res: secResumen, tur: secTurnos, hx: secHorasExtra, nom: secNomina, eq: secEquipos, fer: secFeriados, exp: secExportar }[k])(m, k)
       .catch((e) => { if (e.status !== 401) m.append(h('p', { class: 'aviso aviso-critico', role: 'alert' }, e.message)); });
   }
 
@@ -257,6 +257,111 @@
     const cargar = async () => { datos = (await api('coord/resumen', { params: { anio: anio.value } })).personas; pintar(); };
     anio.onchange = cargar; q.oninput = pintar;
     m.append(h('div', { class: 'filtros' }, campo('Año', anio), campo('Buscar', q)), tabla);
+    await cargar();
+  }
+
+  // ───────── Turnos (calendario de turnos, SPEC-v2 §6.2.4) ─────────
+  const unidadesTurno = () => equiposActivos().filter((e) => e.tiene_turnantes);
+  const EST_TURNO = { normal: null, cubierto: ['Cubierto', 'chip-normal'], sin_cubrir: ['Sin cubrir', 'chip-critico'], cambio: ['Cambio', 'chip-info'] };
+
+  async function secTurnos(m) {
+    const mes = h('input', { class: 'input', type: 'month', value: S.turnosMes || AUS.hoyISO().slice(0, 7) });
+    const unidad = selectEq(unidadesTurno(), 'Todas las unidades', S.turnosUnidad || '');
+    const sinCubrir = h('div', { class: 'vista' });
+    const tabla = h('div', { class: 'tabla-wrap' });
+    const todos = (await api('coord/nomina', { params: { activo: 1 } })).funcionarios;
+    const turnantes = todos.filter((x) => x.jornada === 'turnante');
+    const cargar = async () => {
+      S.turnosMes = mes.value; S.turnosUnidad = unidad.value;
+      const sc = await api('coord/turnos/sin-cubrir');
+      vaciar(sinCubrir);
+      if (sc.turnos.length) sinCubrir.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, AUS.plural(sc.turnos.length, 'turno sin cubrir', 'turnos sin cubrir') + ' en los próximos 30 días'),
+        h('ul', { class: 'lista' }, sc.turnos.map((x) => h('li', null, AUS.fmtLargo(x.fecha) + ' · ' + cap(x.tipo) + ' · ' + x.unidad + ' · ' + x.titular + ' (' + (x.solicitud_tipo || '') + ')',
+          h('button', { type: 'button', class: 'btn btn-chico btn-primario', onclick: () => cubrir(x, todos).then((ok) => ok && cargar()) }, 'Asignar reemplazo'))))));
+      const r = await api('coord/turnos', { params: { mes: mes.value, unidad_id: unidad.value } });
+      vaciar(tabla).append(r.turnos.length ? h('table', { class: 'tabla' },
+        h('thead', null, h('tr', null, ...['Fecha', 'Turno', 'Unidad', 'Titular', 'Estado', 'Cubre', ''].map((t) => h('th', null, t)))),
+        h('tbody', null, r.turnos.map((x) => {
+          const e = EST_TURNO[x.estado];
+          return h('tr', null, h('td', null, AUS.fmt(x.fecha)), h('td', null, cap(x.tipo) + (x.es_extra ? ' (extra)' : '')), h('td', null, x.unidad), h('td', null, x.titular),
+            h('td', null, e ? AUS.chip(e[0], e[1]) : '—', x.solicitud_codigo ? h('span', { class: 'nota' }, ' ' + x.solicitud_codigo) : null),
+            h('td', null, x.cubierto_por ? x.cubierto_por + (x.cubierto_extra ? ' (extra)' : '') : '—'),
+            h('td', null, h('div', { class: 'acciones' },
+              x.estado === 'sin_cubrir' ? h('button', { type: 'button', class: 'btn btn-chico btn-primario', onclick: () => cubrir(x, todos).then((ok) => ok && cargar()) }, 'Cubrir') : null,
+              x.estado === 'normal' ? h('button', { type: 'button', class: 'btn btn-chico btn-peligro', onclick: async () => {
+                if (!(await confirmar('Borrar turno', 'Se borrará el turno ' + cap(x.tipo) + ' del ' + AUS.fmt(x.fecha) + ' de ' + x.titular + '.', 'Borrar', 'btn-peligro'))) return;
+                try { await api('coord/turnos/' + x.id + '/eliminar', { cuerpo: {} }); cargar(); } catch (er) { AUS.toast(er.message); }
+              } }, 'Borrar') : null)));
+        }))) : h('p', { class: 'nota' }, 'No hay turnos cargados en ese mes' + (unidad.value ? ' para esa unidad' : '') + '. Usa «Cargar en lote».'));
+    };
+    mes.onchange = cargar; unidad.onchange = cargar;
+    m.append(h('h1', null, 'Calendario de turnos'),
+      h('div', { class: 'acciones' },
+        h('button', { type: 'button', class: 'btn btn-primario', onclick: () => cargarLote(turnantes).then((ok) => ok && cargar()) }, 'Cargar en lote'),
+        h('button', { type: 'button', class: 'btn', onclick: () => agregarTurno(turnantes).then((ok) => ok && cargar()) }, 'Agregar un turno')),
+      sinCubrir, h('div', { class: 'tarjeta filtros' }, campo('Mes', mes), campo('Unidad', unidad)), tabla);
+    await cargar();
+  }
+
+  const selTurnante = (lista) => h('select', { class: 'input' }, h('option', { value: '' }, 'Elige a la persona…'), ...lista.map((x) => h('option', { value: x.id }, x.nombre)));
+  const selTipoTurno = () => h('select', { class: 'input' }, h('option', { value: 'largo' }, 'Largo'), h('option', { value: 'noche' }, 'Noche (fecha en que empieza)'));
+
+  function agregarTurno(turnantes) {
+    const fecha = h('input', { class: 'input', type: 'date' }), tipo = selTipoTurno(), unidad = selectEq(unidadesTurno()), titular = selTurnante(turnantes);
+    const [lExtra, extra] = check('Es un turno extra', false);
+    return dialogo('Agregar un turno', h('div', { class: 'vista' }, campo('Fecha', fecha), campo('Turno', tipo), campo('Unidad', unidad), campo('Titular', titular), lExtra), [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Agregar', clase: 'btn-primario', accion: async () => {
+        await api('coord/turnos', { cuerpo: { fecha: fecha.value, tipo: tipo.value, unidad_id: +unidad.value, titular_id: +titular.value, es_extra: extra.checked } });
+        return true;
+      } }]);
+  }
+
+  function cargarLote(turnantes) {
+    const unidad = selectEq(unidadesTurno()), titular = selTurnante(turnantes);
+    const desde = h('input', { class: 'input', type: 'date', value: AUS.hoyISO() }), hasta = h('input', { class: 'input', type: 'date' });
+    const patron = h('input', { class: 'input', value: 'L, N, -, -', 'aria-describedby': 'ayuda-patron' });
+    return dialogo('Cargar turnos en lote', h('div', { class: 'vista' }, campo('Unidad', unidad), campo('Titular', titular),
+      h('div', { class: 'dos-col' }, campo('Desde (primer día del patrón)', desde), campo('Hasta', hasta)),
+      campo('Patrón que se repite', patron), h('p', { class: 'ayuda', id: 'ayuda-patron' }, 'L = largo, N = noche, - = libre, separados por comas. Cuarto turno: «L, N, -, -». Se puede repetir sin duplicar turnos.')), [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Cargar', clase: 'btn-primario', accion: async () => {
+        const p = patron.value.split(',').map((x) => x.trim().toUpperCase()).map((x) => (x === 'L' ? 'largo' : x === 'N' ? 'noche' : ''));
+        const r = await api('coord/turnos/lote', { cuerpo: { unidad_id: +unidad.value, titular_id: +titular.value, desde: desde.value, hasta: hasta.value, patron: p } });
+        AUS.toast(r.creados + ' turnos creados' + (r.omitidos ? ', ' + r.omitidos + ' ya existían' : ''));
+        return true;
+      } }]);
+  }
+
+  function cubrir(x, todos) {
+    const quien = h('select', { class: 'input' }, h('option', { value: '' }, 'Elige a quien cubre…'),
+      ...todos.filter((p) => p.id !== x.titular_id).map((p) => h('option', { value: p.id }, p.nombre + ' · ' + cap(p.jornada))));
+    const [lExtra, extra] = check('Lo hace como turno extra', true);
+    return dialogo('Cubrir turno del ' + AUS.fmt(x.fecha), h('div', { class: 'vista' }, h('p', null, cap(x.tipo) + ' · ' + x.unidad + ' · titular ' + x.titular), campo('Quién lo cubre', quien), lExtra), [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Asignar', clase: 'btn-primario', accion: async () => { await api('coord/turnos/' + x.id + '/cubrir', { cuerpo: { funcionario_id: +quien.value, es_extra: extra.checked } }); return true; } }]);
+  }
+
+  // ───────── Horas extra (SPEC-v2 §4.7) ─────────
+  async function secHorasExtra(m) {
+    const mes = h('input', { class: 'input', type: 'month', value: S.hxMes || AUS.hoyISO().slice(0, 7) });
+    const cont = h('div', { class: 'tabla-wrap' });
+    const enlace = h('a', { class: 'btn', href: '#' }, 'Exportar CSV (Excel)');
+    const cargar = async () => {
+      S.hxMes = mes.value;
+      enlace.href = AUS.urlApi('coord/horas-extra/exportar', { mes: mes.value });
+      const r = await api('coord/horas-extra', { params: { mes: mes.value } });
+      vaciar(cont).append(r.personas.length ? h('table', { class: 'tabla' },
+        h('thead', null, h('tr', null, ...['Persona', 'Turnos', 'Horas diurnas', 'Horas festivas', 'Total'].map((t) => h('th', null, t)))),
+        h('tbody', null, r.personas.map((p) => h('tr', null,
+          h('td', null, h('details', null, h('summary', null, p.nombre), h('ul', { class: 'lista' }, p.turnos.map((t) => h('li', null,
+            AUS.fmt(t.fecha) + ' · ' + cap(t.tipo) + ' · ' + t.unidad + ' · ' + t.motivo + ': ' + AUS.num(t.diurnas) + ' + ' + AUS.num(t.festivas) + ' h' + (t.manual ? ' (corregidas)' : '')))))),
+          h('td', { class: 'num-der' }, p.turnos.length), h('td', { class: 'num-der' }, AUS.num(p.diurnas)), h('td', { class: 'num-der' }, AUS.num(p.festivas)), h('td', { class: 'num-der' }, AUS.num(p.total)))))) :
+        h('p', { class: 'nota' }, 'No hay turnos extra en ese mes.'));
+    };
+    mes.onchange = cargar;
+    m.append(h('h1', null, 'Horas extra'), h('p', { class: 'nota' }, 'Calculadas con las reglas del equipo (SPEC-v2 §4.7): referencia para RR.HH., que valida el pago.'),
+      h('div', { class: 'tarjeta filtros' }, campo('Mes', mes), enlace), cont);
     await cargar();
   }
 

@@ -163,7 +163,9 @@ function h_turnos_mios(PDO $db, array $p, array $in): array
     $hasta = fecha_add($hoy, 120);
     $st = $db->prepare(TURNO_SELECT . ' WHERE t.cubierto_por_id=? AND t.fecha BETWEEN ? AND ? ORDER BY t.fecha, t.tipo');
     $st->execute([yo(), $hoy, $hasta]);
-    return ['turnos' => turnos_de($db, yo(), $hoy, $hasta), 'cubro' => array_map('turno_publico', $st->fetchAll())];
+    // en_solicitud: código de la solicitud activa que ya usa ese turno (el formulario no lo ofrece de nuevo).
+    $mios = array_map(fn($t) => $t + ['en_solicitud' => turno_en_uso($db, $t['id'])], turnos_de($db, yo(), $hoy, $hasta));
+    return ['turnos' => $mios, 'cubro' => array_map('turno_publico', $st->fetchAll())];
 }
 
 // ───────────────────────── Efecto de las solicitudes en los turnos (§4.3, §4.4, §4.6) ─────────────────────────
@@ -248,4 +250,14 @@ function h_coord_turno_cubrir(PDO $db, array $p, array $in): array
     $db->prepare('UPDATE turnos SET cubierto_por_id=?, cubierto_extra=? WHERE id=?')->execute([(int)$in['funcionario_id'], (int)(bool)($in['es_extra'] ?? true), $tu['id']]);
     auditar($db, 'turno_cubrir', (int)$tu['solicitud_id'], "turno #{$tu['id']} {$tu['fecha']} → $nombre", ip_cliente(), yo_o_null());
     return ['ok' => true];
+}
+/** Turnos futuros de un compañero turnante (para elegir la devolución de un cambio). Solo fecha, turno y unidad. */
+function h_turnos_de(PDO $db, array $p, array $in): array
+{
+    $st = $db->prepare("SELECT 1 FROM funcionarios WHERE id=? AND activo=1 AND jornada='turnante'");
+    $st->execute([(int)$p[1]]);
+    if (!$st->fetchColumn()) throw new ApiError('Esa persona no es turnante.', 404);
+    $hoy = Reloj::hoy();
+    return ['turnos' => array_map(fn($t) => ['id' => $t['id'], 'fecha' => $t['fecha'], 'tipo' => $t['tipo'], 'unidad' => $t['unidad'], 'estado' => $t['estado']],
+                                  turnos_de($db, (int)$p[1], $hoy, fecha_add($hoy, 120)))];
 }

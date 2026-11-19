@@ -65,7 +65,8 @@
   function abrirCal() { initCal(); cargarMes(); }
 
   // ═══════════ Formulario ═══════════
-  const F = { tipo: null, fraccion: 'completo', dias: [], llenos: [], sinSaldo: '', seq: 0 };
+  // turnos: mis turnos libres; reemp: {turno_id: {id, nombre}}; todos/uno: reemplazo general o del único turno; con: compañero del cambio
+  const F = { tipo: null, fraccion: 'completo', llenos: [], sinSaldo: '', seq: 0, turnos: [], reemp: {}, todos: null, uno: null, con: null };
 
   const jornada = () => (SES ? SES.persona.jornada : null);   // siempre la persona de la sesión
   const unidades = () => CFG.equipos.filter((e) => e.tiene_turnantes);
@@ -79,15 +80,13 @@
   }
 
   function resetForm() {
-    Object.assign(F, { tipo: null, fraccion: 'completo', dias: [], llenos: [] });
-    ['f-desde', 'f-hasta', 'f-comentario', 'fd-reemplazo', 'fc-con', 'fc-fecha', 'fs-just'].forEach((i) => { $(i).value = ''; });
+    Object.assign(F, { tipo: null, fraccion: 'completo', llenos: [], reemp: {}, todos: null, uno: null, con: null });
+    ['f-desde', 'f-hasta', 'f-comentario', 'ft-reemp', 'ft-todos', 'fc-con', 'fs-just'].forEach((i) => { $(i).value = ''; });
     $('fs-acepta').checked = false;
-    $('fc-turno').value = '';
+    vaciar($('fc-dev')).append(h('option', { value: '' }, 'Sin devolución'));
     $('f-error').textContent = '';
-    opcionesSelect($('fd-unidad'), unidades(), 'Elige la unidad…');
     $('f-desde').min = AUS.hoyISO();
     $('f-hasta').min = AUS.hoyISO();
-    $('fc-fecha').min = AUS.hoyISO();
     const p = SES.persona;
     $('fi-nombre').textContent = p.nombre;
     $('fi-jornada').textContent = p.jornada === 'turnante' ? 'Turnante' : 'Diurno';
@@ -124,60 +123,70 @@
     const j = jornada();
     const t = F.tipo;
     const tp = T();
-    mostrarEl($('f-fechas'), !!(j && t));
+    const unTurno = j === 'turnante' && (tp.rango === 'un_dia' || !!tp.es_cambio_turno);   // el turnante elige un turno, no fechas
+    mostrarEl($('f-fechas'), !!(j && t) && !unTurno);
     mostrarEl($('w-hasta'), tp.rango === 'rango');
     mostrarEl($('f-frac-box'), !!tp.medio_dia);
     mostrarEl($('w-comentario'), !!(j && t));
-    mostrarEl($('f-turn'), j === 'turnante' && !!t); // FL, ADM y CT necesitan turno y unidad por fecha
-    mostrarEl($('f-defaults'), j === 'turnante' && tp.rango === 'rango' && !tp.es_cambio_turno);
+    mostrarEl($('f-turn'), j === 'turnante' && !!t);
     mostrarEl($('f-ct'), j === 'turnante' && !!tp.es_cambio_turno);
-    $('l-desde').textContent = tp.rango === 'rango' ? 'Desde' : tp.es_cambio_turno ? 'Fecha del turno que cedes' : 'Fecha';
-    if (j === 'turnante' && t) sincronizarDias(); else { F.dias = []; renderDias(); }
+    $('l-desde').textContent = tp.rango === 'rango' ? 'Desde' : 'Fecha';
+    if (j === 'turnante' && t) pintarTurnante(unTurno);
     simular();
   }
 
-  // ----- Turnantes: una fila por día -----
-  function sincronizarDias() {
-    const t = F.tipo;
-    const d = $('f-desde').value;
-    let fechas = [];
-    if (d) {
-      if (T().rango === 'rango' && !T().es_cambio_turno) {
-        const hasta = $('f-hasta').value || d;
-        let f = d;
-        while (f <= hasta && fechas.length < 62) { fechas.push(f); f = AUS.addDias(f, 1); }
-      } else fechas = [d];
-    }
-    const previos = Object.fromEntries(F.dias.map((x) => [x.fecha, x]));
-    F.dias = fechas.map((f) => previos[f] || { fecha: f, turno: $('fd-turno').value, unidad_id: +$('fd-unidad').value || 0, reemplazo: $('fd-reemplazo').value });
-    renderDias();
+  // ----- Turnantes: sobre sus turnos cargados (SPEC-v2 §4.3) -----
+  const etiquetaTurno = (x) => AUS.fmtLargo(x.fecha) + ' · ' + cap(x.tipo) + ' · ' + x.unidad;
+  const turnosEnRango = () => {
+    const d = $('f-desde').value, hst = $('f-hasta').value || d;
+    return d ? F.turnos.filter((x) => x.fecha >= d && x.fecha <= hst) : [];
+  };
+
+  async function cargarMisTurnos() {
+    try { F.turnos = (await api('turnos/mios')).turnos.filter((x) => x.estado === 'normal' && !x.en_solicitud); }
+    catch (e) { F.turnos = []; $('f-error').textContent = e.message; }
   }
 
-  function renderDias() {
-    const box = vaciar($('f-dias'));
-    F.dias.forEach((d) => {
-      const sTurno = h('select', { class: 'input', 'aria-label': 'Turno del ' + AUS.fmt(d.fecha), onchange: (e) => { d.turno = e.target.value; } },
-        h('option', { value: 'largo' }, 'Turno largo'), h('option', { value: 'noche' }, 'Turno noche'));
-      sTurno.value = d.turno;
-      const sUni = h('select', { class: 'input', 'aria-label': 'Unidad del ' + AUS.fmt(d.fecha), onchange: (e) => { d.unidad_id = +e.target.value || 0; } },
-        h('option', { value: '' }, 'Unidad…'), unidades().map((u) => h('option', { value: u.id }, u.nombre)));
-      sUni.value = d.unidad_id || '';
-      const fila = h('div', { class: 'dia-turno' }, h('span', { class: 'fecha' }, AUS.fmtLargo(d.fecha)), sTurno, sUni);
-      if (!T().es_cambio_turno) {
-        const r = h('input', { class: 'input reemp', type: 'text', maxlength: '120', placeholder: 'Quién te cubre', 'aria-label': 'Quién cubre el ' + AUS.fmt(d.fecha), value: d.reemplazo || '',
-          oninput: (e) => { d.reemplazo = e.target.value; } });
-        AUS.datalistNomina(r);
-        fila.append(r);
-      }
-      if (T().rango === 'rango' && F.dias.length > 1) {
-        fila.append(h('button', { type: 'button', class: 'btn btn-chico', 'aria-label': 'Quitar el ' + AUS.fmt(d.fecha), onclick: () => { F.dias = F.dias.filter((x) => x !== d); renderDias(); simular(); } }, '×'));
-      }
-      box.append(fila);
+  /** Campo de texto con autocompletado de la nómina que guarda {id, nombre} en guardar(). */
+  function selectorPersona(input, guardar) {
+    if (input.dataset.ac) return;
+    input.dataset.ac = '1';
+    AUS.autocompletar(input, { onPick: (p) => { guardar({ id: p.id, nombre: p.nombre }); simular(); }, onClear: () => guardar(null) });
+  }
+
+  function pintarTurnante(unTurno) {
+    const tp = T();
+    mostrarEl($('ft-w-turno'), unTurno);
+    mostrarEl($('ft-w-reemp'), unTurno && !tp.es_cambio_turno);
+    mostrarEl($('ft-w-todos'), !unTurno);
+    const lista = vaciar($('ft-lista'));
+    const vacio = $('ft-vacio');
+    mostrarEl(vacio, false);
+    if (unTurno) {
+      const sel = $('ft-turno'), previo = sel.value;
+      vaciar(sel).append(h('option', { value: '' }, F.turnos.length ? 'Elige tu turno…' : 'No tienes turnos cargados'), ...F.turnos.map((x) => h('option', { value: x.id }, etiquetaTurno(x))));
+      sel.value = previo;
+      if (!F.turnos.length) { vacio.textContent = 'No tienes turnos cargados desde hoy. Si falta alguno, avisa a coordinación.'; mostrarEl(vacio, true); }
+      return;
+    }
+    const tr = turnosEnRango();
+    if ($('f-desde').value && !tr.length) { vacio.textContent = 'No tienes turnos cargados en esas fechas. Si falta alguno, avisa a coordinación.'; mostrarEl(vacio, true); }
+    tr.forEach((x) => {
+      const inp = h('input', { class: 'input', type: 'text', placeholder: F.todos ? F.todos.nombre : 'Quién lo cubre', 'aria-label': 'Quién cubre el turno del ' + AUS.fmt(x.fecha),
+        value: F.reemp[x.id] ? F.reemp[x.id].nombre : '' });
+      const caja = h('div', null, inp);
+      lista.append(h('div', { class: 'dia-turno' }, h('span', { class: 'fecha' }, etiquetaTurno(x)), caja));
+      selectorPersona(inp, (p) => { if (p) F.reemp[x.id] = p; else delete F.reemp[x.id]; });
     });
   }
 
-  function aplicarDefault(campo, valor) { F.dias.forEach((d) => { d[campo] = valor; }); renderDias(); }
-
+  async function cargarDevoluciones() {
+    const sel = vaciar($('fc-dev'));
+    sel.append(h('option', { value: '' }, 'Sin devolución'));
+    if (!F.con) return;
+    try { (await api('turnos/de/' + F.con.id)).turnos.filter((x) => x.estado === 'normal').forEach((x) => sel.append(h('option', { value: x.id }, etiquetaTurno(x)))); }
+    catch (e) { /* el compañero no es turnante: sin devolución posible */ }
+  }
   // ----- Resumen en vivo (simulación en el servidor) -----
   function textoFechas(dias) {
     const f = dias.map((d) => AUS.fmt(d.fecha).slice(0, 5));
@@ -197,16 +206,14 @@
     ocultarSobre();
     const j = jornada();
     if (!j || !F.tipo) return;
-    if (j === 'turnante') {
-      if (F.dias.length) box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(F.dias.length, 'turno', 'turnos')), '. Los turnantes no usan cupo; coordinación autoriza igualmente.'));
-      return;
-    }
-    if (!$('f-desde').value) return;
+    const unTurno = j === 'turnante' && (T().rango === 'un_dia' || T().es_cambio_turno);
+    if (unTurno ? !$('ft-turno').value : !$('f-desde').value) return;
     const mi = ++F.seq;
     try {
       const s = await api('solicitudes/simular', { cuerpo: cuerpo() });
       if (mi !== F.seq) return;
-      box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
+      if (j === 'turnante') box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.dias.length, 'turno', 'turnos') + ': '), textoFechas(s.dias), '. Los turnantes no usan cupo; coordinación autoriza igualmente.'));
+      else box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
       (s.saldo || []).forEach((x) => {
         const nombre = x.saldo === 'FL' ? 'feriado legal' : 'administrativos';
         if (x.insuficiente) {
@@ -217,6 +224,7 @@
         }
       });
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
+      if (j === 'turnante') return;
       if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
       else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' día(s). Cupo del equipo: ' + AUS.num(s.cupo) + ' en la mañana y ' + AUS.num(s.cupo) + ' en la tarde.'));
       if (s.dias_llenos.length) {
@@ -239,9 +247,14 @@
       b.fecha_fin = T().rango === 'rango' ? ($('f-hasta').value || b.fecha_inicio) : b.fecha_inicio;
       b.fraccion = T().medio_dia ? F.fraccion : 'completo';
     } else {
-      b.dias = F.dias.map((d) => ({ fecha: d.fecha, turno: d.turno, unidad_id: d.unidad_id, reemplazo: d.reemplazo || '' }));
-      if (T().medio_dia) b.fraccion = F.fraccion;
-      if (T().es_cambio_turno) Object.assign(b, { cambio_con: $('fc-con').value.trim(), devolucion_fecha: $('fc-fecha').value || null, devolucion_turno: $('fc-turno').value || null });
+      const tp = T();
+      if (tp.es_cambio_turno) Object.assign(b, { turno_id: +$('ft-turno').value || null, cambio_con_id: F.con ? F.con.id : null, devolucion_turno_id: +$('fc-dev').value || null });
+      else if (tp.rango === 'un_dia') Object.assign(b, { turno_id: +$('ft-turno').value || null, reemplazo_id: F.uno ? F.uno.id : null, fraccion: tp.medio_dia ? F.fraccion : 'completo' });
+      else {
+        b.fecha_inicio = $('f-desde').value;
+        b.fecha_fin = $('f-hasta').value || b.fecha_inicio;
+        b.reemplazos = Object.fromEntries(turnosEnRango().map((x) => [x.id, (F.reemp[x.id] || F.todos || {}).id || null]));
+      }
     }
     b.acepta_sobre_cupo = $('fs-acepta').checked;
     b.justificacion = $('fs-just').value.trim();
@@ -254,7 +267,9 @@
     const fallo = (m) => { err.textContent = m; err.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
     err.textContent = '';
     if (!F.tipo) return fallo('Elige qué necesitas.');
-    if (!$('f-desde').value) return fallo('Indica la fecha.');
+    const unTurno = jornada() === 'turnante' && (T().rango === 'un_dia' || T().es_cambio_turno);
+    if (unTurno && !$('ft-turno').value) return fallo('Elige tu turno.');
+    if (!unTurno && !$('f-desde').value) return fallo('Indica la fecha.');
     if (F.sinSaldo) return fallo(F.sinSaldo);
     if (F.llenos.length && !$('fs-acepta').checked) return fallo('Hay días sin cupo. Cambia las fechas o marca «Enviar igualmente como solicitud sobre cupo».');
     if ($('fs-acepta').checked && F.llenos.length && !$('fs-just').value.trim()) return fallo('Escribe la justificación para enviar sobre cupo.');
@@ -281,17 +296,18 @@
       if (i === 'f-desde') $('f-hasta').min = $('f-desde').value || AUS.hoyISO();
       actualizar();
     }));
-    $('fd-turno').onchange = (e) => aplicarDefault('turno', e.target.value);
-    $('fd-unidad').onchange = (e) => aplicarDefault('unidad_id', +e.target.value || 0);
-    $('fd-reemplazo').oninput = (e) => aplicarDefault('reemplazo', e.target.value);
-    AUS.datalistNomina($('fd-reemplazo'));
-    AUS.datalistNomina($('fc-con'));
+    $('ft-turno').onchange = () => simular();
+    $('fc-dev').onchange = () => simular();
+    selectorPersona($('ft-reemp'), (p) => { F.uno = p; });
+    selectorPersona($('ft-todos'), (p) => { F.todos = p; pintarTurnante(false); });
+    selectorPersona($('fc-con'), (p) => { F.con = p; cargarDevoluciones(); });
     $('fs-acepta').onchange = () => mostrarEl($('fs-wj'), $('fs-acepta').checked);
     $('form').addEventListener('submit', enviar);
   }
 
-  function abrirForm(q) {
+  async function abrirForm(q) {
     initForm();
+    if (SES.persona.jornada === 'turnante') await cargarMisTurnos();
     resetForm();
     const fecha = q.get('fecha');
     if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha >= AUS.hoyISO()) { $('f-desde').value = fecha; actualizar(); }
@@ -348,6 +364,28 @@
       card.append(zona, h('p', { class: 'nota' }, 'Se puede anular hasta las 23:59 del día anterior a la primera fecha.'));
     }
     return card;
+  }
+
+  // ═══════════ Mis turnos ═══════════
+  const ESTADO_TURNO = { normal: null, cubierto: ['Te cubren', 'chip-normal'], sin_cubrir: ['Ausente', 'chip-info'], cambio: ['Por cambio', 'chip-info'] };
+  async function abrirTurnos() {
+    $('t-error').textContent = '';
+    const mios = vaciar($('t-mios')), cubro = vaciar($('t-cubro'));
+    try {
+      const r = await api('turnos/mios');
+      mios.append(h('h2', null, 'Mis próximos turnos'));
+      if (!r.turnos.length) mios.append(h('p', { class: 'nota' }, SES.persona.jornada === 'turnante' ? 'No tienes turnos cargados desde hoy. Si falta alguno, avisa a coordinación.' : 'Los diurnos no tienen turnos propios; aquí verás los turnos que cubras.'));
+      else mios.append(h('ul', { class: 'lista' }, r.turnos.map((x) => {
+        const e = ESTADO_TURNO[x.estado];
+        return h('li', null, h('strong', null, AUS.fmtLargo(x.fecha)), ' · ' + cap(x.tipo) + ' · ' + x.unidad, e ? AUS.chip(e[0], e[1]) : null,
+          !e && x.en_solicitud ? AUS.chip('En ' + x.en_solicitud, 'chip-info') : null,
+          x.cubierto_por ? h('span', { class: 'nota' }, 'Cubre: ' + x.cubierto_por) : null);
+      })));
+      cubro.append(h('h2', null, 'Turnos que cubro'));
+      if (!r.cubro.length) cubro.append(h('p', { class: 'nota' }, 'No tienes turnos por cubrir.'));
+      else cubro.append(h('ul', { class: 'lista' }, r.cubro.map((x) => h('li', null, h('strong', null, AUS.fmtLargo(x.fecha)), ' · ' + cap(x.tipo) + ' · ' + x.unidad,
+        h('span', { class: 'nota' }, 'en lugar de ' + x.titular), x.cubierto_extra ? AUS.chip('Extra', 'chip-precaucion') : null))));
+    } catch (e) { $('t-error').textContent = e.message; }
   }
 
   // ═══════════ Mi perfil ═══════════
@@ -470,14 +508,16 @@
     if (path === '/pedir') vista = 'pedir';
     else if (path === '/mis') vista = 'mis';
     else if (path === '/perfil') vista = 'perfil';
+    else if (path === '/turnos') vista = 'turnos';
     else if (path === '/ok' && ULTIMA) vista = 'ok';
     mostrarEl($('v-' + vista), true);
-    ['cal', 'mis', 'perfil'].forEach((v) => $('nav-' + v).toggleAttribute('aria-current', false));
-    if (['cal', 'mis', 'perfil'].includes(vista)) $('nav-' + vista).setAttribute('aria-current', 'page');
+    ['cal', 'mis', 'turnos', 'perfil'].forEach((v) => $('nav-' + v).toggleAttribute('aria-current', false));
+    if (['cal', 'mis', 'turnos', 'perfil'].includes(vista)) $('nav-' + vista).setAttribute('aria-current', 'page');
     if (vista === 'cal') abrirCal();
     else if (vista === 'pedir') abrirForm(q);
     else if (vista === 'mis') abrirMis();
     else if (vista === 'perfil') { initPerfil(); abrirPerfil(); }
+    else if (vista === 'turnos') abrirTurnos();
     else abrirOk();
     window.scrollTo(0, 0);
   }
