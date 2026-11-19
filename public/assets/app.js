@@ -99,7 +99,6 @@
     $('f-nombre').value = p.nombre;
     $('fi-jornada').textContent = p.jornada === 'turnante' ? 'Turnante' : 'Diurno';
     $('fi-equipo').textContent = p.equipo || (p.jornada === 'turnante' ? 'Rota entre unidades' : '—');
-    $('fi-calidad').textContent = '—';
     mostrarEl($('f-ficha'), true);
     mostrarEl($('f-fuera'), false);
     renderTipos();
@@ -214,7 +213,6 @@
     try {
       const s = await api('solicitudes/simular', { cuerpo: cuerpo() });
       if (mi !== F.seq) return;
-      $('fi-calidad').textContent = cap(s.persona.calidad);
       box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
       if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.'));

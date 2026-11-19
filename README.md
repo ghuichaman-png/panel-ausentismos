@@ -75,7 +75,7 @@ Se usa siempre `api.php?r=ruta` (no depende de reescritura de URL). Diferencias 
 - `GET api.php?r=calendario&mes=2026-12` devuelve **todas** las ausencias del mes (sin RUT); el cliente calcula la vista (equipo / todos / turnantes). Coordinación usa `coord/calendario` (con datos completos).
 - Se agregó `POST solicitudes/simular`: calcula días hábiles, consumo y días llenos con las mismas reglas del servidor, para el resumen en vivo del formulario (no escribe nada).
 - Se agregó `coord/solicitudes/{id}/anular` y `/vincular`, y `coord/sesion`.
-- La búsqueda pública de nómina no devuelve RUT ni calidad. La calidad se muestra en el formulario solo después de simular, para la persona elegida.
+- La búsqueda pública de nómina no devuelve RUT ni calidad. La simulación tampoco devuelve datos de la persona (nombre, equipo ni calidad), porque sin login cualquiera podría simular a nombre de otro.
 - ADM es de un solo día (completo o medio día), como en el borrador; FL admite rangos.
 
 ## Datos de demostración y pruebas (desarrollo)

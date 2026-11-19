@@ -316,6 +316,23 @@ prueba('Bug N1: coordinación nunca queda abierta sin clave, aunque config.php t
     chequear(is_array($l) && isset($l['error']) && !isset($l['solicitudes']), 'coord/solicitudes sin login no lista nada');
 });
 
+prueba('Bug N2: la simulación no expone nombre, equipo ni calidad jurídica de nadie', function () {
+    $db = nuevaDb();
+    $a = mk($db, 'Persona Honorarios Ficticia', 'diurno', 'H7', 'honorarios');
+    $rutA = rutDe($db, $a);
+    $sinDatos = function (array $r, string $caso): void {
+        $txt = json_encode($r, JSON_UNESCAPED_UNICODE);
+        chequear(!str_contains($txt, 'honorarios'), "$caso: no revela la calidad jurídica: $txt");
+        chequear(!str_contains($txt, 'Persona Honorarios Ficticia'), "$caso: no revela el nombre");
+        chequear(!array_key_exists('persona', $r), "$caso: no devuelve el bloque 'persona'");
+    };
+    // 1) eligiendo a otra persona por id (sin login, cualquiera puede hacerlo)
+    $sinDatos(h_simular($db, [], ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02', 'fraccion' => 'completo']), 'por id');
+    // 2) escribiendo solo el RUT de otra persona en «No estoy en la lista»
+    $sinDatos(h_simular($db, [], ['rut' => $rutA, 'nombre' => 'xx', 'jornada' => 'diurno', 'calidad' => 'titular',
+                                 'equipo_id' => eid($db, 'H7'), 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02']), 'por RUT');
+});
+
 echo "\n" . ($GLOBALS['fallos'] === 0 ? "TODO OK" : "FALLARON {$GLOBALS['fallos']}") . " ({$GLOBALS['total']} verificaciones)\n";
 foreach (glob($tmp . DIRECTORY_SEPARATOR . '*') ?: [] as $f) @unlink($f);
 @rmdir($tmp);

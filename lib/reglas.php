@@ -285,10 +285,8 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         $consumoTotal = array_sum(array_column($dias, 'consumo'));
 
         if ($dry) {
-            return ['persona' => ['nombre' => $p['nombre'], 'jornada' => $p['jornada'], 'equipo_id' => $p['equipo_id'],
-                                  'equipo' => $p['equipo_nombre'] ?? ($equipo['nombre'] ?? null), 'calidad' => $p['calidad'],
-                                  'fuera_de_nomina' => (bool)$p['fuera']],
-                    'dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'fraccion' => $d['fraccion']], $dias),
+            // Sin datos de la persona: sin login, cualquiera podría simular a nombre de otro (bug N2).
+            return ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'fraccion' => $d['fraccion']], $dias),
                     'omitidos' => $omitidos, 'habiles' => count($dias), 'consumo_total' => $consumoTotal,
                     'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null];
         }
