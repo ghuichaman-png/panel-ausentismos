@@ -387,6 +387,7 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
             $porId = isset($meta['creada_por']) ? (int)$meta['creada_por'] : null;
             $db->prepare("UPDATE solicitudes SET estado='autorizada', resuelta_por_id=?, resuelto_por=(SELECT nombre FROM funcionarios WHERE id=?), resuelto_en=? WHERE id=?")
                ->execute([$porId, $porId, Reloj::stamp(), $id]);
+            turnos_aplicar($db, reg_sol($db, $id), true);
         }
         $porOtro = isset($meta['creada_por']) && (int)$meta['creada_por'] !== $p['funcionario_id'];
         auditar($db, 'crear', $id, "$codigo $tipo {$primera}→{$ultima}" . ($llenos ? ' SOBRE CUPO' : '') . ($porOtro ? ' (registrada por coordinación)' : ''),
@@ -400,9 +401,9 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
 }
 
 /** $por: nombre de quien resuelve (se muestra); $porId: su funcionario_id (cuenta con sesión). */
-function reg_resolver(PDO $db, int $id, string $accion, string $motivo, string $por, string $ip = '', ?int $porId = null): array
+function reg_resolver(PDO $db, int $id, string $accion, string $motivo, string $por, string $ip = '', ?int $porId = null, bool $esExtra = true): array
 {
-    return tx($db, function () use ($db, $id, $accion, $motivo, $por, $ip, $porId) {
+    return tx($db, function () use ($db, $id, $accion, $motivo, $por, $ip, $porId, $esExtra) {
         $s = reg_sol($db, $id);
         $por = limpiar($por, 60);
         $motivo = limpiar($motivo, 500);
@@ -415,6 +416,7 @@ function reg_resolver(PDO $db, int $id, string $accion, string $motivo, string $
         } else throw new ApiError('Acción inválida.', 422);
         $db->prepare('UPDATE solicitudes SET estado=?, motivo_resolucion=?, resuelto_por=?, resuelta_por_id=?, resuelto_en=? WHERE id=?')
            ->execute([$nuevo, $motivo ?: null, $por, $porId, Reloj::stamp(), $id]);
+        if ($nuevo === 'autorizada') turnos_aplicar($db, $s, $esExtra);   // misma transacción: todo o nada
         auditar($db, $nuevo === 'autorizada' ? 'autorizar' : 'rechazar', $id, "{$s['codigo']} por $por. $motivo", $ip, $porId);
         notificar('solicitud_resuelta', ['id' => $id, 'codigo' => $s['codigo'], 'estado' => $nuevo]);
         return ['estado' => $nuevo];
@@ -435,6 +437,7 @@ function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $acept
             if ($motivo === '') throw new ApiError('Para rechazar debes escribir el motivo.', 422);
             $db->prepare("UPDATE solicitudes SET estado='rechazada', motivo_resolucion=?, resuelto_por=?, resuelta_por_id=?, resuelto_en=? WHERE id=?")
                ->execute([$motivo, $por, $porId, Reloj::stamp(), $id]);
+            turnos_restaurar($db, $id);
             auditar($db, 'revertir_a_rechazada', $id, "{$s['codigo']} por $por. $motivo", $ip, $porId);
             notificar('solicitud_resuelta', ['id' => $id, 'codigo' => $s['codigo'], 'estado' => 'rechazada']);
             return ['estado' => 'rechazada'];
@@ -456,6 +459,7 @@ function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $acept
         }
         $db->prepare("UPDATE solicitudes SET estado='autorizada', sobre_cupo=?, justificacion_sobre_cupo=COALESCE(?, justificacion_sobre_cupo), motivo_resolucion=?, resuelto_por=?, resuelta_por_id=?, resuelto_en=? WHERE id=?")
            ->execute([$llenos ? 1 : 0, $llenos ? $justif : null, $motivo ?: null, $por, $porId, Reloj::stamp(), $id]);
+        turnos_aplicar($db, $s, true);
         auditar($db, 'revertir_a_autorizada', $id, "{$s['codigo']} por $por" . ($llenos ? ' SOBRE CUPO' : ''), $ip, $porId);
         notificar('solicitud_resuelta', ['id' => $id, 'codigo' => $s['codigo'], 'estado' => 'autorizada']);
         return ['estado' => 'autorizada', 'sobre_cupo' => (bool)$llenos];
@@ -481,6 +485,7 @@ function reg_anular(PDO $db, int $id, ?int $actorId, bool $esCoord, string $por 
                 throw new ApiError('Ya no se puede anular: el plazo terminó a las 23:59 del día anterior al primer día. Habla con coordinación.', 409);
             }
         }
+        if ($s['estado'] === 'autorizada') turnos_restaurar($db, $id);
         $db->prepare("UPDATE solicitudes SET estado='anulada', anulado_en=?, resuelto_por=COALESCE(?, resuelto_por) WHERE id=?")
            ->execute([Reloj::stamp(), $esCoord ? (limpiar($por, 60) ?: null) : null, $id]);
         auditar($db, $esCoord ? 'anular_coord' : 'anular', $id, $s['codigo'] . ($esCoord ? " por $por" : ''), $ip, $actorId);

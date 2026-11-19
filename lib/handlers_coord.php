@@ -69,7 +69,8 @@ function mi_nombre(PDO $db): string
 
 function h_coord_resolver(PDO $db, array $p, array $in): array
 {
-    return reg_resolver($db, (int)$p[1], (string)($in['accion'] ?? ''), (string)($in['motivo'] ?? ''), mi_nombre($db), ip_cliente(), yo());
+    return reg_resolver($db, (int)$p[1], (string)($in['accion'] ?? ''), (string)($in['motivo'] ?? ''), mi_nombre($db), ip_cliente(), yo(),
+                        array_key_exists('es_extra', $in) ? (bool)$in['es_extra'] : true);
 }
 
 function h_coord_revertir(PDO $db, array $p, array $in): array

@@ -127,9 +127,10 @@ function turno_publico(array $t): array
     foreach (['id', 'unidad_id', 'titular_id'] as $k) $t[$k] = (int)$t[$k];
     foreach (['cubierto_por_id', 'solicitud_id', 'titular_original_id'] as $k) $t[$k] = $t[$k] !== null ? (int)$t[$k] : null;
     $t['es_extra'] = (bool)$t['es_extra'];
+    $t['cubierto_extra'] = (bool)($t['cubierto_extra'] ?? false);
     $t['horas_override'] = $t['horas_override'] !== null ? (float)$t['horas_override'] : null;
     // estado: normal · cubierto (ausencia con reemplazo) · sin_cubrir (licencia sin reemplazo) · cambio (cambio de turno)
-    $t['estado'] = $t['cubierto_por_id'] ? 'cubierto' : ($t['origen'] === 'licencia' ? 'sin_cubrir' : ($t['origen'] === 'cambio' ? 'cambio' : 'normal'));
+    $t['estado'] = $t['cubierto_por_id'] ? 'cubierto' : (in_array($t['origen'], ['licencia', 'ausencia'], true) ? 'sin_cubrir' : ($t['origen'] === 'cambio' ? 'cambio' : 'normal'));
     return $t;
 }
 
@@ -163,4 +164,88 @@ function h_turnos_mios(PDO $db, array $p, array $in): array
     $st = $db->prepare(TURNO_SELECT . ' WHERE t.cubierto_por_id=? AND t.fecha BETWEEN ? AND ? ORDER BY t.fecha, t.tipo');
     $st->execute([yo(), $hoy, $hasta]);
     return ['turnos' => turnos_de($db, yo(), $hoy, $hasta), 'cubro' => array_map('turno_publico', $st->fetchAll())];
+}
+
+// ───────────────────────── Efecto de las solicitudes en los turnos (§4.3, §4.4, §4.6) ─────────────────────────
+
+const MSG_TURNO_NO_DISPONIBLE = 'El turno del %s ya no está disponible (cambió de titular o lo tomó otra solicitud). Revísalo en el calendario de turnos.';
+
+/**
+ * Aplica una solicitud autorizada al calendario de turnos. Se llama DENTRO de la transacción que la autoriza:
+ * si algo falla, se revierte todo (bug B6 de la app anterior).
+ *  - Ausencia con reemplazo: el turno queda «cubierto por» el reemplazo (extra según $extra).
+ *  - Cambio de turno: el turno cedido pasa al compañero y la devolución a quien pidió (guardando el titular original).
+ *  - Tipo sin reemplazo registrado por coordinación (licencia): los turnos del rango quedan «sin cubrir».
+ */
+function turnos_aplicar(PDO $db, array $s, bool $extra): void
+{
+    if ($s['jornada'] !== 'turnante') return;
+    $st = $db->prepare('SELECT * FROM tipos_ausentismo WHERE sigla=?');
+    $st->execute([$s['tipo']]);
+    $t = $st->fetch();
+    $fid = (int)$s['funcionario_id'];
+    $sid = (int)$s['id'];
+    $exigir = function (?int $turnoId, int $titular) use ($db): array {
+        $st = $db->prepare('SELECT * FROM turnos WHERE id=?');
+        $st->execute([(int)$turnoId]);
+        $tu = $st->fetch();
+        if (!$tu || (int)$tu['titular_id'] !== $titular || $tu['solicitud_id'] !== null) {
+            throw new ApiError(sprintf(MSG_TURNO_NO_DISPONIBLE, $tu ? fecha_cl($tu['fecha']) : '(borrado)'), 409, ['codigo' => 'turno_no_disponible']);
+        }
+        return $tu;
+    };
+    try {
+        if ($t && (int)$t['es_cambio_turno']) {
+            $d = reg_sol_dias($db, $sid)[0] ?? null;
+            $tu = $exigir($d ? (int)$d['turno_id'] : null, $fid);
+            $con = (int)$s['cambio_con_id'];
+            $db->prepare("UPDATE turnos SET titular_original_id=titular_id, titular_id=?, origen='cambio', solicitud_id=? WHERE id=?")->execute([$con, $sid, $tu['id']]);
+            if ($s['devolucion_turno_id']) {
+                $dev = $exigir((int)$s['devolucion_turno_id'], $con);
+                $db->prepare("UPDATE turnos SET titular_original_id=titular_id, titular_id=?, origen='cambio', solicitud_id=? WHERE id=?")->execute([$fid, $sid, $dev['id']]);
+            }
+        } elseif ($t && $t['lo_pide'] === 'coordinacion' && !(int)$t['exige_reemplazo']) {
+            $db->prepare("UPDATE turnos SET origen='licencia', solicitud_id=?, cubierto_por_id=NULL, cubierto_extra=0
+                          WHERE titular_id=? AND fecha BETWEEN ? AND ? AND solicitud_id IS NULL")->execute([$sid, $fid, $s['fecha_inicio'], $s['fecha_fin']]);
+        } else {
+            foreach (reg_sol_dias($db, $sid) as $d) {
+                if (!$d['turno_id']) continue;
+                $tu = $exigir((int)$d['turno_id'], $fid);
+                $db->prepare("UPDATE turnos SET cubierto_por_id=?, cubierto_extra=?, origen='ausencia', solicitud_id=? WHERE id=?")
+                   ->execute([$d['reemplazo_id'], $d['reemplazo_id'] ? (int)$extra : 0, $sid, $tu['id']]);
+            }
+        }
+    } catch (PDOException $e) {
+        if (str_contains($e->getMessage(), 'UNIQUE')) throw new ApiError('El cambio dejaría a una persona con dos turnos iguales el mismo día. Revisa el calendario de turnos.', 409);
+        throw $e;
+    }
+}
+
+/** Deshace en los turnos SOLO lo que hizo esta solicitud (bug B15 de la app anterior). */
+function turnos_restaurar(PDO $db, int $solicitudId): void
+{
+    $db->prepare("UPDATE turnos SET titular_id=COALESCE(titular_original_id, titular_id), titular_original_id=NULL, cubierto_por_id=NULL,
+                  cubierto_extra=0, origen='carga', solicitud_id=NULL WHERE solicitud_id=?")->execute([$solicitudId]);
+}
+
+/** Turnos de personas ausentes que nadie cubre (licencias o ausencias sin reemplazo). */
+function h_coord_turnos_sin_cubrir(PDO $db, array $p, array $in): array
+{
+    $desde = fecha_ok($_GET['desde'] ?? null) ? $_GET['desde'] : Reloj::hoy();
+    $hasta = fecha_ok($_GET['hasta'] ?? null) ? $_GET['hasta'] : fecha_add($desde, 30);
+    $st = $db->prepare(TURNO_SELECT . " WHERE t.solicitud_id IS NOT NULL AND t.cubierto_por_id IS NULL AND t.origen IN ('licencia','ausencia')
+        AND t.fecha BETWEEN ? AND ? ORDER BY t.fecha, t.tipo");
+    $st->execute([$desde, $hasta]);
+    return ['turnos' => array_map('turno_publico', $st->fetchAll())];
+}
+
+/** Coordinación asigna quién cubre un turno de una persona ausente. */
+function h_coord_turno_cubrir(PDO $db, array $p, array $in): array
+{
+    $tu = turno_fila($db, (int)$p[1]);
+    if ($tu['solicitud_id'] === null || $tu['origen'] === 'cambio') throw new ApiError('Ese turno no es de una persona ausente.', 422);
+    $nombre = reg_otra_persona($db, $in['funcionario_id'] ?? 0, (int)$tu['titular_id'], 'quién cubre el turno');
+    $db->prepare('UPDATE turnos SET cubierto_por_id=?, cubierto_extra=? WHERE id=?')->execute([(int)$in['funcionario_id'], (int)(bool)($in['es_extra'] ?? true), $tu['id']]);
+    auditar($db, 'turno_cubrir', (int)$tu['solicitud_id'], "turno #{$tu['id']} {$tu['fecha']} → $nombre", ip_cliente(), yo_o_null());
+    return ['ok' => true];
 }

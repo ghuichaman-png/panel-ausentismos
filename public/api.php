@@ -53,6 +53,8 @@ $rutas = [
     ['POST', 'coord/equipos/(\d+)',            'h_coord_equipos_guardar',   'coord'],
     ['POST', 'coord/equipos',                  'h_coord_equipos_guardar',   'coord'],
     ['GET',  'coord/turnos',                   'h_coord_turnos',            'coord'],
+    ['GET',  'coord/turnos/sin-cubrir',        'h_coord_turnos_sin_cubrir', 'coord'],
+    ['POST', 'coord/turnos/(\d+)/cubrir',      'h_coord_turno_cubrir',      'coord'],
     ['POST', 'coord/turnos/lote',              'h_coord_turnos_lote',       'coord'],
     ['POST', 'coord/turnos/(\d+)/eliminar',    'h_coord_turno_eliminar',    'coord'],
     ['POST', 'coord/turnos/(\d+)',             'h_coord_turno_guardar',     'coord'],

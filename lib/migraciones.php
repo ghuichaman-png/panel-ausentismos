@@ -21,7 +21,14 @@ function migraciones(): array
         5 => 'mig_005_bloques',
         6 => 'mig_006_saldos',
         7 => 'mig_007_turnos',
+        8 => 'mig_008_cubierto_extra',
     ];
+}
+
+/** Si quien cubre un turno lo hace como extra (§12.4), separado del «extra» propio del turno cargado. */
+function mig_008_cubierto_extra(PDO $db): void
+{
+    $db->exec('ALTER TABLE turnos ADD COLUMN cubierto_extra INTEGER NOT NULL DEFAULT 0');
 }
 
 /** Calendario de turnos (SPEC-v2 §3.7) y vínculos de las solicitudes con turnos, reemplazos y cambios. */
