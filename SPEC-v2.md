@@ -2,7 +2,7 @@
 
 > Reemplaza a `SPEC.MD.md`, que queda como historial. Integra la app nueva (PHP + SQLite) y la anterior (React + Firebase) según `docs/analisis.md`, `docs/propuesta.md` y `docs/vital-evaluacion.md`, y las respuestas del 19-11-2026.
 >
-> Los puntos marcados **[a confirmar]** son interpretaciones mías de tus respuestas. Están reunidos en la §12. No se implementan hasta que los confirmes.
+> Las decisiones están en la §12; todas quedaron confirmadas el 19-11-2026.
 
 ---
 
@@ -128,7 +128,7 @@ Los tipos precargados se pueden desactivar, pero no borrar. Un tipo con solicitu
 - `saldo_movimientos`: `funcionario_id`, `anio`, `saldo` (`FL` | `ADM`), `dias` (positivo o negativo), `motivo` y `creado_por`. Hay dos clases:
   - **asignación anual** automática (regla fija: FL 15 y ADM 6);
   - **ajustes** de coordinación con motivo obligatorio (p. ej. "+5 FL por antigüedad").
-- **El saldo no se guarda: se calcula.** disponible = asignación + ajustes − días de solicitudes **autorizadas** − días de solicitudes **pendientes** (las pendientes reservan saldo) **[a confirmar 12.6]**.
+- **El saldo no se guarda: se calcula.** disponible = asignación + ajustes − días de solicitudes **autorizadas** − días de solicitudes **pendientes** (las pendientes reservan saldo) (§12.6).
 
 ### 3.9 Auditoría
 
@@ -165,9 +165,9 @@ Fecha y hora, `funcionario_id` del actor, acción, solicitud o turno afectado, d
 - La **licencia (LIC) no consume cupo**: se muestra, pero no limita a los demás.
 
 ### 4.3 Turnantes y calendario de turnos
-- **Se exige turno cargado.** Un turnante solo puede pedir ADM o CT sobre un turno suyo del calendario. Para un FL elige un rango, y el sistema lista sus turnos de ese rango; el rango debe contener al menos uno **[a confirmar 12.1]**.
+- **Se exige turno cargado.** Un turnante solo puede pedir ADM o CT sobre un turno suyo del calendario. Para un FL elige un rango, y el sistema lista sus turnos de ese rango; el rango debe contener al menos uno (§12.1).
 - Para cada turno afectado, la persona indica **quién lo cubre**, eligiendo de la nómina activa. Es obligatorio si el tipo exige reemplazo.
-- Al **autorizar**, en la misma transacción, cada turno queda `cubierto_por = reemplazo`, con `es_extra` según lo que marque coordinación (por defecto, sí) **[a confirmar 12.4]**. Al **anular o revertir** una autorizada, se restauran **solo los turnos vinculados a esa solicitud**.
+- Al **autorizar**, en la misma transacción, cada turno queda `cubierto_por = reemplazo`, con `es_extra` según lo que marque coordinación (por defecto, sí) (§12.4). Al **anular o revertir** una autorizada, se restauran **solo los turnos vinculados a esa solicitud**.
 - Si coordinación registra una **licencia** de un turnante, sus turnos del rango quedan **"sin cubrir"**, destacados en coordinación para asignarles reemplazo.
 
 ### 4.4 Cambio de turno (solo turnantes)
@@ -507,7 +507,7 @@ docs/                   análisis, propuesta, evaluación de Vital, plan
 | Visual | Vital, encabezado en vidrio, tema oscuro automático, sin tintes, con los ajustes de 44 px y escala reducida. |
 | Firebase | No se toca. |
 
-### 12.1 a 12.7 Interpretaciones mías [a confirmar]
+### 12.1 a 12.7 Interpretaciones confirmadas por ti (19-11-2026)
 
 1. **FL de turnante:** se pide por rango, el sistema lista sus turnos del rango, se exige al menos uno, se indica un reemplazo por turno y el saldo descuenta los días hábiles del rango.
 2. **ADM de turnante:** un turno completo descuenta 1 ADM; una mitad del turno, 0,5.

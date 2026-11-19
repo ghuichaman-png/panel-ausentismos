@@ -2,7 +2,7 @@
 
 Base: `SPEC-v2.md`. Cada paso es **un commit** en la rama de trabajo, deja la app funcionando y se puede comprobar. Los bugs llevan primero un test que los reproduce (rojo) y luego la corrección (verde). Antes de cada commit se corre `php tests/run.php` completo.
 
-**Antes de empezar:** confirmar las interpretaciones [a confirmar] de SPEC-v2 §12.1 a 12.7. Los pasos que dependen de cada una están marcados con (§12.x).
+**Interpretaciones:** las de SPEC-v2 §12.1 a 12.7 quedaron confirmadas el 19-11-2026. Los pasos que dependen de cada una están marcados con (§12.x).
 
 **Bugs de la app anterior:** su código se descarta junto con Firebase, así que no se "corrigen" ahí. Sus fallas sí se cubren con **tests de regresión** en la app unida: doble descuento (B5), días corridos (B7), errores ocultos (B4), estados a medias (B6) y reversión que pisa otras solicitudes (B15). Cada caso aparece en el paso que construye la función equivalente.
 
