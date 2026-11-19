@@ -18,6 +18,7 @@
     mostrarEl($('app'), true); mostrarEl($('salir'), true); mostrarEl($('quien'), true);
     const cfg = await AUS.api('config');
     AUS.hoy = cfg.hoy;
+    S.tipos = cfg.tipos;
     document.title = 'Coordinación · ' + cfg.titulo;
     await cargarEquipos();
     pintarTabs();
@@ -72,12 +73,15 @@
   // ───────── Solicitudes (pendientes / todas) ─────────
   async function secSolicitudes(m, modo) {
     const pend = modo === 'pend';
-    m.append(h('h1', null, pend ? 'Bandeja de pendientes' : 'Todas las solicitudes'));
+    m.append(h('h1', null, pend ? 'Bandeja de pendientes' : 'Todas las solicitudes'),
+      h('div', { class: 'acciones' },
+        h('button', { type: 'button', class: 'btn btn-primario', onclick: () => registrarEnNombre('LIC').then((ok) => ok && abrir(S.sec)) }, 'Registrar licencia'),
+        h('button', { type: 'button', class: 'btn', onclick: () => registrarEnNombre('').then((ok) => ok && abrir(S.sec)) }, 'Registrar en nombre de…')));
     const f = {
       estado: h('select', { class: 'input' }, ...[['', 'Todos'], ['pendiente', 'Pendiente'], ['autorizada', 'Autorizada'], ['rechazada', 'Rechazada'], ['anulada', 'Anulada']].map(([v, t]) => h('option', { value: v }, t))),
       equipo: selectEq(equiposActivos(), 'Todos'),
       jornada: h('select', { class: 'input' }, h('option', { value: '' }, 'Todas'), h('option', { value: 'diurno' }, 'Diurno'), h('option', { value: 'turnante' }, 'Turnante')),
-      tipo: h('select', { class: 'input' }, h('option', { value: '' }, 'Todos'), h('option', { value: 'FL' }, 'FL'), h('option', { value: 'ADM' }, 'ADM'), h('option', { value: 'CT' }, 'CT')),
+      tipo: h('select', { class: 'input' }, h('option', { value: '' }, 'Todos'), ...S.tipos.map((t) => h('option', { value: t.sigla }, t.sigla + ' · ' + t.nombre))),
       desde: h('input', { type: 'date', class: 'input' }), hasta: h('input', { type: 'date', class: 'input' }),
       q: h('input', { type: 'search', class: 'input', placeholder: 'Nombre, RUT o código' }),
     };
@@ -146,6 +150,43 @@
     }
     card.append(acc);
     return card;
+  }
+
+  /** Licencia (nace autorizada) o cualquier solicitud registrada por coordinación en nombre de una persona. */
+  async function registrarEnNombre(siglaInicial) {
+    const nomina = (await api('coord/nomina', { params: { activo: 1 } })).funcionarios;
+    const persona = h('select', { class: 'input' }, h('option', { value: '' }, 'Elige a la persona…'),
+      ...nomina.map((x) => h('option', { value: x.id }, x.nombre + ' · ' + cap(x.jornada) + (x.equipo ? ' · ' + x.equipo : ''))));
+    const tipo = h('select', { class: 'input' }, ...S.tipos.filter((t) => !t.es_cambio_turno).map((t) => h('option', { value: t.sigla }, t.nombre)));
+    if (siglaInicial) tipo.value = siglaInicial;
+    const desde = h('input', { class: 'input', type: 'date' });
+    const hasta = h('input', { class: 'input', type: 'date' });
+    const frac = h('select', { class: 'input' }, h('option', { value: 'completo' }, 'Día completo'), h('option', { value: 'am' }, 'Mañana (AM)'), h('option', { value: 'pm' }, 'Tarde (PM)'));
+    const comentario = h('textarea', { class: 'input', maxlength: '500' });
+    const [lSobre, sobre] = check('Registrar igual si no hay cupo (sobre cupo)', false);
+    const just = h('textarea', { class: 'input', maxlength: '1000', placeholder: 'Justificación (obligatoria si es sobre cupo)' });
+    const wHasta = campo('Hasta', hasta), wFrac = campo('¿Cuánto?', frac);
+    const pintar = () => {
+      const t = S.tipos.find((x) => x.sigla === tipo.value) || {};
+      wHasta.classList.toggle('oculto', t.rango !== 'rango');
+      wFrac.classList.toggle('oculto', !t.medio_dia);
+    };
+    tipo.onchange = pintar; pintar();
+    const nota = h('p', { class: 'nota' }, 'Las licencias quedan autorizadas al registrarlas. Las demás quedan pendientes en la bandeja. Para turnantes, desde aquí se registran tipos sin reemplazo (como la licencia); los demás los pide la persona con sus turnos.');
+    return dialogo('Registrar en nombre de', h('div', { class: 'vista' }, campo('Persona', persona), campo('Tipo', tipo),
+      h('div', { class: 'dos-col' }, campo('Desde', desde), wHasta), wFrac, campo('Comentario (opcional)', comentario), lSobre, just, nota), [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Registrar', clase: 'btn-primario', accion: async () => {
+        if (!persona.value) throw new Error('Elige a la persona.');
+        if (!desde.value) throw new Error('Indica la fecha.');
+        const t = S.tipos.find((x) => x.sigla === tipo.value) || {};
+        const r = await api('coord/solicitudes/en-nombre-de', { cuerpo: {
+          funcionario_id: +persona.value, tipo: tipo.value, fecha_inicio: desde.value,
+          fecha_fin: t.rango === 'rango' ? (hasta.value || desde.value) : desde.value, fraccion: t.medio_dia ? frac.value : 'completo',
+          comentario: comentario.value.trim(), acepta_sobre_cupo: sobre.checked, justificacion: just.value.trim() } });
+        AUS.toast(r.codigo + ' registrada (' + r.estado + ')');
+        return true;
+      } }]);
   }
 
   function pedirMotivo(titulo, etiqueta) {

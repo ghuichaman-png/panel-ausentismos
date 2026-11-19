@@ -270,7 +270,15 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
             foreach ($dias as &$d) $d['equipo_id'] = (int)$p['equipo_id'];
             unset($d);
         } else {
-            $dias = reg_dias_turnante($in, $t, reg_unidades_turno($db), $extra);
+            if (empty($in['dias']) && !$t['exige_reemplazo'] && !$t['es_cambio_turno'] && $t['rango'] === 'rango' && fecha_ok($in['fecha_inicio'] ?? null)) {
+                // Turnante con un tipo de rango sin reemplazo (p. ej. licencia): un día por fecha, sin turno (SPEC-v2 §4.6).
+                $ff = fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $in['fecha_inicio'];
+                if ($ff < $in['fecha_inicio']) throw new ApiError('La fecha final es anterior a la inicial.', 422);
+                $dias = array_map(fn($f) => ['fecha' => $f, 'consumo' => 0.0, 'am' => 0.0, 'pm' => 0.0, 'fraccion' => 'completo', 'turno' => null,
+                                             'unidad_turno_id' => null, 'reemplazo_nombre' => null], rango_fechas($in['fecha_inicio'], $ff, 62));
+            } else {
+                $dias = reg_dias_turnante($in, $t, reg_unidades_turno($db), $extra);
+            }
             foreach ($dias as &$d) $d['equipo_id'] = null;
             unset($d);
         }
@@ -278,7 +286,8 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         $fechas = array_column($dias, 'fecha');
         $primera = min($fechas);
         $ultima = max($fechas);
-        if ($primera < $hoy) throw new ApiError('No se pueden pedir fechas pasadas.', 422);
+        // Coordinación puede registrar licencias o solicitudes pasadas «en nombre de» (SPEC-v2 §4.8).
+        if ($primera < $hoy && empty($meta['por_coordinacion'])) throw new ApiError('No se pueden pedir fechas pasadas.', 422);
         if (!empty($cfg['anticipacion_min_dias'])) {
             $dif = (int)(new DateTimeImmutable($hoy))->diff(new DateTimeImmutable($primera))->days;
             if ($dif < (int)$cfg['anticipacion_min_dias']) throw new ApiError('Debes pedir con al menos ' . (int)$cfg['anticipacion_min_dias'] . ' días de anticipación.', 422);
@@ -338,12 +347,20 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
             $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['am'], $d['pm'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['reemplazo_nombre']]);
         }
         saldo_registrar_uso($db, $id, $t['saldo'], $usoSaldo);
+        // Los tipos que registra coordinación (licencia) nacen autorizados, firmados por quien los registró (§12.5).
+        $estado = 'pendiente';
+        if ($t['lo_pide'] === 'coordinacion' && !empty($meta['por_coordinacion'])) {
+            $estado = 'autorizada';
+            $porId = isset($meta['creada_por']) ? (int)$meta['creada_por'] : null;
+            $db->prepare("UPDATE solicitudes SET estado='autorizada', resuelta_por_id=?, resuelto_por=(SELECT nombre FROM funcionarios WHERE id=?), resuelto_en=? WHERE id=?")
+               ->execute([$porId, $porId, Reloj::stamp(), $id]);
+        }
         $porOtro = isset($meta['creada_por']) && (int)$meta['creada_por'] !== $p['funcionario_id'];
         auditar($db, 'crear', $id, "$codigo $tipo {$primera}→{$ultima}" . ($llenos ? ' SOBRE CUPO' : '') . ($porOtro ? ' (registrada por coordinación)' : ''),
                 $meta['ip'] ?? '', $meta['creada_por'] ?? $p['funcionario_id']);
         notificar('solicitud_creada', ['id' => $id, 'codigo' => $codigo]);
 
-        return ['id' => $id, 'codigo' => $codigo, 'estado' => 'pendiente', 'sobre_cupo' => (bool)$llenos,
+        return ['id' => $id, 'codigo' => $codigo, 'estado' => $estado, 'sobre_cupo' => (bool)$llenos,
                 'habiles' => count($dias), 'omitidos' => $omitidos, 'consumo_total' => $consumoTotal];
     };
     return $dry ? $fn() : tx($db, $fn);
