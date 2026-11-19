@@ -16,7 +16,42 @@ function migraciones(): array
     return [
         1 => 'db_esquema_v1',
         2 => 'mig_002_telefono_rol',
+        3 => 'mig_003_cuentas_sesiones',
     ];
+}
+
+/** Login por usuario (SPEC-v2 §3.3 y §5): credenciales con PIN/código y sesiones por dispositivo. */
+function mig_003_cuentas_sesiones(PDO $db): void
+{
+    $db->exec(<<<'SQL'
+CREATE TABLE credenciales (
+  funcionario_id INTEGER PRIMARY KEY REFERENCES funcionarios(id),
+  pin_hash TEXT,
+  codigo_hash TEXT,
+  codigo_vence TEXT,
+  intentos_fallidos INTEGER NOT NULL DEFAULT 0,
+  bloqueos INTEGER NOT NULL DEFAULT 0,
+  bloqueado_hasta TEXT,
+  actualizado_en TEXT
+);
+CREATE TABLE sesiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  csrf TEXT NOT NULL,
+  funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id),
+  creada TEXT NOT NULL,
+  ultimo_uso TEXT NOT NULL,
+  vence TEXT NOT NULL,
+  compartido INTEGER NOT NULL DEFAULT 0,
+  user_agent TEXT,
+  ip TEXT,
+  revocada INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX ix_sesiones_func ON sesiones(funcionario_id, revocada);
+ALTER TABLE solicitudes ADD COLUMN creada_por INTEGER REFERENCES funcionarios(id);
+ALTER TABLE solicitudes ADD COLUMN resuelta_por_id INTEGER REFERENCES funcionarios(id);
+ALTER TABLE auditoria ADD COLUMN funcionario_id INTEGER;
+SQL);
 }
 
 /** Nómina: teléfono (solo lo ve coordinación) y rol por persona (SPEC-v2 §3.2). */

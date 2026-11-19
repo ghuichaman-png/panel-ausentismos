@@ -8,6 +8,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/migraciones.php';
 require_once __DIR__ . '/notificar.php';
 require_once __DIR__ . '/reglas.php';
+require_once __DIR__ . '/cuentas.php';
 
 function cfg_defaults(): array
 {
