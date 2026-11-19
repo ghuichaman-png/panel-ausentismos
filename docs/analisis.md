@@ -335,3 +335,18 @@ Las ordeno y amplío en la Fase 2. Las que bloquean la propuesta:
 7. Las diferencias de reglas B8 a B14 (sin cupo, sin calidad, saldos, licencias, cancelar = borrar, rechazo sin motivo): asumo que **rige el SPEC** porque así lo dijiste, pero confírmalo en cada una que la app anterior aplique distinto a propósito.
 
 **Urgente, aunque no sea parte de este trabajo:** si la app anterior está en uso, B1 a B3 exponen hoy los RUT, teléfonos y licencias médicas del equipo, y permiten que cualquiera apruebe solicitudes. Revisar las reglas desplegadas en Firebase Console es una tarea de minutos. Te propongo hacerlo antes de seguir con la unificación.
+
+---
+
+## 8. Respuestas recibidas (19-11-2026)
+
+| Pregunta | Respuesta | Consecuencia |
+|---|---|---|
+| ¿La app anterior tiene datos reales? | **No, solo pruebas.** | No hay datos de Firebase que migrar. La "migración" se reduce a la carga inicial de la nómina (`nomina-hpm.csv`) y, si aplica, de los saldos iniciales. B1–B3 no exponen datos reales hoy, pero conviene apagar o cerrar ese proyecto Firebase. |
+| ¿La app nueva está publicada? | **No.** | N1 no afecta a nadie hoy. Se corrige antes de publicar. |
+| Alcance | **Todo**: ausentismos + calendario de turnos + turnos extra y horas extra. | Cambia el SPEC §1 y §4.3 (ver `docs/propuesta.md`). |
+| Medio día | **AM y PM por separado**: cada bloque con su propio cupo; un día completo ocupa ambos. | Cambia el SPEC §4.2 y el test de "AM + PM suman 1". |
+| Equipos | **Son 19** (incluye Oncología infantil y Neurología infantil). | N5 deja de ser bug; se corrige la cifra en el SPEC. |
+| Saldos | **Como la app anterior**: se descuentan al aprobar (corrigiendo días hábiles y el doble descuento). | ⚠ Cambia una regla del encargo ("no lleva saldos oficiales"). Quedo registrándolo como decisión tuya; los detalles van como preguntas en la Fase 2. |
+| Tipos de ausentismo | **Agregar licencias** y que **coordinación pueda crear otros tipos** (lista ampliable). | Cambia el SPEC §1 y §4.1. Cada tipo nuevo necesita reglas (cupo, saldo, quién lo pide); van como preguntas en la Fase 2. |
+| Referencia visual | **Enviarás una nueva referencia.** | La guía visual de la Fase 3 queda a la espera de esa imagen. El análisis del §3 sigue siendo válido como inventario de lo actual. |
