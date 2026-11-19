@@ -72,7 +72,8 @@ function json_out(mixed $data, int $code = 200): never
 
 function body_json(): array
 {
-    $raw = file_get_contents('php://input');
+    // AUS_PRUEBA_CUERPO solo lo define tests/api_sub.php (en CLI no existe php://input).
+    $raw = defined('AUS_PRUEBA_CUERPO') ? (string)constant('AUS_PRUEBA_CUERPO') : file_get_contents('php://input');
     if ($raw === false || trim($raw) === '') return [];
     $d = json_decode($raw, true);
     if (!is_array($d)) throw new ApiError('La solicitud no tiene un formato válido.', 400);
