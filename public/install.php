@@ -69,7 +69,7 @@ try {
         file_put_contents($lock, 'instalado ' . date('c') . PHP_EOL);
         $msgs[] = "Base de datos creada en $dbPath";
         $msgs[] = $n ? "Se sembraron $n equipos." : 'Los equipos ya existían.';
-        if ((string)cfg('clave_hash') === '' && !cfg('coord_sin_clave')) $msgs[] = 'Falta configurar clave_hash en config.php (genera el hash en esta misma página antes de instalar, o con php -r).';
+        if ((string)cfg('clave_hash') === '') $msgs[] = 'Falta configurar clave_hash en config.php (genera el hash en esta misma página antes de instalar, o con php -r).';
         $msgs[] = 'Siguiente paso: BORRA install.php del servidor y carga la nómina desde /coordinacion.';
         $yaInstalado = true;
     }

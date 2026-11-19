@@ -14,11 +14,7 @@ function sesion_iniciar(): void
 function coord_autenticado(): bool
 {
     sesion_iniciar();
-    if (cfg('coord_sin_clave')) { // modo abierto: la vista de coordinación no pide clave
-        if (empty($_SESSION['coord'])) $_SESSION = ['coord' => true, 'csrf' => bin2hex(random_bytes(24))];
-        $_SESSION['last'] = time();
-        return true;
-    }
+    // Coordinación siempre exige clave. La antigua opción 'coord_sin_clave' se eliminó y se ignora si aparece en config.php.
     if (empty($_SESSION['coord'])) return false;
     if (time() - (int)($_SESSION['last'] ?? 0) > (int)cfg('sesion_horas') * 3600) {
         $_SESSION = [];

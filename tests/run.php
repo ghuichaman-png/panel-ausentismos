@@ -277,6 +277,45 @@ prueba('Concurrencia: dos procesos piden el último cupo → solo uno sin sobre 
     chequear(ocup($db, 'H7', '2026-12-10') === 1.0, 'la ocupación final es exactamente 1');
 });
 
+/**
+ * Prepara una carpeta de aplicación temporal (lib/ + config.php propio + base) para pedir rutas de api.php
+ * en un proceso aparte, sin tocar el config.php ni la base de desarrollo.
+ */
+function appTemporal(array $config): string
+{
+    global $tmp;
+    static $n = 0;
+    $dir = $tmp . DIRECTORY_SEPARATOR . 'app' . (++$n);
+    @mkdir($dir . '/lib', 0777, true);
+    foreach (glob(APP_DIR . '/lib/*.php') as $f) copy($f, $dir . '/lib/' . basename($f));
+    $dbp = $dir . '/datos.sqlite';
+    $db = db_open($dbp); db_schema($db); db_sembrar_equipos($db); $db = null;
+    file_put_contents($dir . '/config.php', '<?php return ' . var_export($config + ['db_path' => $dbp, 'forzar_https' => false], true) . ';');
+    return $dir;
+}
+
+function pedirApi(string $appDir, string $metodo, string $ruta): string
+{
+    $p = proc_open([PHP_BINARY, __DIR__ . '/api_sub.php', $appDir, $metodo, $ruta], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $out = (string)stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    proc_close($p);
+    return $out;
+}
+
+prueba('Bug N1: coordinación nunca queda abierta sin clave, aunque config.php traiga coord_sin_clave', function () {
+    $app = appTemporal(['coord_sin_clave' => true, 'clave_hash' => password_hash('clave-de-prueba-larga', PASSWORD_DEFAULT)]);
+    $s = json_decode(pedirApi($app, 'GET', 'coord/sesion'), true);
+    chequear(is_array($s) && ($s['autenticado'] ?? null) === false, 'coord/sesion sin login no está autenticada: ' . json_encode($s));
+    chequear(is_array($s) && array_key_exists('csrf', $s) && $s['csrf'] === null, 'coord/sesion sin login no entrega token CSRF');
+    $r = pedirApi($app, 'GET', 'coord/respaldo');
+    chequear(!str_starts_with($r, 'SQLite format 3'), 'coord/respaldo sin login no entrega la base de datos');
+    $j = json_decode($r, true);
+    chequear(is_array($j) && str_contains((string)($j['error'] ?? ''), 'sesión'), 'coord/respaldo sin login responde error de sesión: ' . substr($r, 0, 80));
+    $l = json_decode(pedirApi($app, 'GET', 'coord/solicitudes'), true);
+    chequear(is_array($l) && isset($l['error']) && !isset($l['solicitudes']), 'coord/solicitudes sin login no lista nada');
+});
+
 echo "\n" . ($GLOBALS['fallos'] === 0 ? "TODO OK" : "FALLARON {$GLOBALS['fallos']}") . " ({$GLOBALS['total']} verificaciones)\n";
 foreach (glob($tmp . DIRECTORY_SEPARATOR . '*') ?: [] as $f) @unlink($f);
 @rmdir($tmp);

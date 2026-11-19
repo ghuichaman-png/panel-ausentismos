@@ -30,7 +30,7 @@ nomina-ejemplo.csv      formato de la nómina
    - `/home/USUARIO/dominio.cl/ausentismos/` → web. Sube aquí el **contenido** de `public/` (incluido `.htaccess`).
 2. **Configura.** Copia `config.example.php` como `config.php` y ajusta:
    - `db_path` → `/home/USUARIO/ausentismos-data/ausentismos.sqlite`
-   - `coord_sin_clave` → `true` (coordinación sin clave) o `false` + `clave_hash` (ver «Acceso a coordinación»)
+   - `clave_hash` → hash de la clave de coordinación (obligatorio; ver «Acceso a coordinación»)
    - `titulo`, `logo` (opcional), límites.
 3. **Apunta la web a la carpeta privada.** Edita `app-dir.php` (en la carpeta web) y escribe `$APP_DIR_PRIVADA = '/home/USUARIO/ausentismos-app';`.
 4. **HTTPS.** En el panel de DreamHost activa Let's Encrypt para el dominio. El `.htaccess` redirige a HTTPS.
@@ -40,7 +40,7 @@ nomina-ejemplo.csv      formato de la nómina
 
 ### Acceso a coordinación
 
-Por defecto (`coord_sin_clave => true`) la vista `/coordinacion/` **no pide clave**: quien conozca el enlace puede autorizar y modificar todo. Sugerencias: no compartas ese enlace y, si quieres, renombra la carpeta `coordinacion` por algo difícil de adivinar (ej. `coord-k7x2m`); funciona con cualquier nombre. Si algún día quieres clave: pon `coord_sin_clave => false` y un `clave_hash` generado con:
+La vista `/coordinacion/` **siempre pide clave**: sin `clave_hash` en `config.php` no se puede entrar. (La antigua opción `coord_sin_clave` se eliminó: si aparece en un `config.php` antiguo, se ignora.) Genera el hash con:
 
 ```bash
 php -r "echo password_hash('NUEVA-CLAVE-LARGA', PASSWORD_DEFAULT), PHP_EOL;"

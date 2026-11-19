@@ -14,10 +14,7 @@ return [
     // Archivo SQLite: debe estar FUERA de la carpeta pública.
     'db_path'  => '/home/USUARIO/ausentismos-data/ausentismos.sqlite',
 
-    // Coordinación SIN clave (la vista /coordinacion/ queda abierta a quien conozca el enlace).
-    // Pon false y completa clave_hash si algún día quieres exigir clave.
-    'coord_sin_clave' => true,
-    // password_hash() de la clave compartida (solo si coord_sin_clave es false). Ver README.
+    // password_hash() de la clave compartida de coordinación (obligatoria: sin ella, coordinación no abre). Ver README.
     'clave_hash' => '',
 
     'timezone' => 'America/Santiago',

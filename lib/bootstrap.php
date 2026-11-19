@@ -11,7 +11,7 @@ require_once __DIR__ . '/reglas.php';
 function cfg_defaults(): array
 {
     return [
-        'titulo' => 'Ausentismos · Kinesiología HPM', 'logo' => '', 'db_path' => '', 'clave_hash' => '', 'coord_sin_clave' => false,
+        'titulo' => 'Ausentismos · Kinesiología HPM', 'logo' => '', 'db_path' => '', 'clave_hash' => '',
         'timezone' => 'America/Santiago', 'forzar_https' => true,
         'limite_envios_hora' => 10, 'login_max_intentos' => 5, 'login_bloqueo_min' => 15, 'sesion_horas' => 8,
         'fl_largo_dias_habiles' => 5, 'anticipacion_min_dias' => null, 'horizonte_max_dias' => null,
