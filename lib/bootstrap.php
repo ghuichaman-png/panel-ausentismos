@@ -9,6 +9,7 @@ require_once __DIR__ . '/migraciones.php';
 require_once __DIR__ . '/notificar.php';
 require_once __DIR__ . '/reglas.php';
 require_once __DIR__ . '/cuentas.php';
+require_once __DIR__ . '/saldos.php';
 
 function cfg_defaults(): array
 {
@@ -16,6 +17,7 @@ function cfg_defaults(): array
         'titulo' => 'Ausentismos · Kinesiología HPM', 'logo' => '', 'db_path' => '',
         'timezone' => 'America/Santiago', 'forzar_https' => true,
         'limite_envios_hora' => 10, 'limite_ip_auth_hora' => 300,
+        'saldo_fl_anual' => 15, 'saldo_adm_anual' => 6,
         'fl_largo_dias_habiles' => 5, 'anticipacion_min_dias' => null, 'horizonte_max_dias' => null,
     ];
 }

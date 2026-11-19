@@ -65,7 +65,7 @@
   function abrirCal() { initCal(); cargarMes(); }
 
   // ═══════════ Formulario ═══════════
-  const F = { tipo: null, fraccion: 'completo', dias: [], llenos: [], seq: 0 };
+  const F = { tipo: null, fraccion: 'completo', dias: [], llenos: [], sinSaldo: '', seq: 0 };
 
   const jornada = () => (SES ? SES.persona.jornada : null);   // siempre la persona de la sesión
   const unidades = () => CFG.equipos.filter((e) => e.tiene_turnantes);
@@ -193,6 +193,7 @@
   const simular = AUS.debounce(async () => {
     const box = vaciar($('f-resumen'));
     F.llenos = [];
+    F.sinSaldo = '';
     ocultarSobre();
     const j = jornada();
     if (!j || !F.tipo) return;
@@ -206,6 +207,15 @@
       const s = await api('solicitudes/simular', { cuerpo: cuerpo() });
       if (mi !== F.seq) return;
       box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
+      (s.saldo || []).forEach((x) => {
+        const nombre = x.saldo === 'FL' ? 'feriado legal' : 'administrativos';
+        if (x.insuficiente) {
+          F.sinSaldo = 'No te alcanza el saldo de ' + nombre + ' ' + x.anio + ': te quedan ' + AUS.num(x.disponible) + ' y esta solicitud usa ' + AUS.num(x.usa) + '. Habla con coordinación.';
+          box.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Saldo insuficiente. '), F.sinSaldo.replace(/^No te alcanza /, 'No alcanza ')));
+        } else {
+          box.append(h('p', { class: 'nota' }, 'Saldo de ' + nombre + ' ' + x.anio + ': usa ' + AUS.num(x.usa) + ', te quedarán ' + AUS.num(x.disponible - x.usa) + ' de ' + AUS.num(x.disponible) + ' disponibles.'));
+        }
+      });
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
       if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
       else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' día(s). Cupo del equipo: ' + AUS.num(s.cupo) + ' en la mañana y ' + AUS.num(s.cupo) + ' en la tarde.'));
@@ -245,6 +255,7 @@
     err.textContent = '';
     if (!F.tipo) return fallo('Elige qué necesitas.');
     if (!$('f-desde').value) return fallo('Indica la fecha.');
+    if (F.sinSaldo) return fallo(F.sinSaldo);
     if (F.llenos.length && !$('fs-acepta').checked) return fallo('Hay días sin cupo. Cambia las fechas o marca «Enviar igualmente como solicitud sobre cupo».');
     if ($('fs-acepta').checked && F.llenos.length && !$('fs-just').value.trim()) return fallo('Escribe la justificación para enviar sobre cupo.');
     const btn = $('f-enviar');
@@ -356,6 +367,22 @@
       h('div', null, h('dt', null, 'Equipo'), h('dd', null, p.equipo || '—')),
       h('div', null, h('dt', null, 'Calidad'), h('dd', null, cap(p.calidad))),
       h('div', null, h('dt', null, 'Rol'), h('dd', null, p.rol === 'coordinacion' ? 'Coordinación' : 'Funcionario')));
+    const caja = vaciar($('p-saldos'));
+    try {
+      const r = await api('saldos/mios');
+      caja.append(h('h2', null, 'Mis saldos ' + r.anio));
+      const fila = h('div', { class: 'dos-col' });
+      [['FL', 'Feriado legal'], ['ADM', 'Administrativos']].forEach(([k, n]) => {
+        const x = r.saldos[k];
+        fila.append(h('div', { class: 'tarjeta-blanca' },
+          h('p', { class: 'etiqueta' }, n),
+          h('p', { class: 'cod-grande' }, AUS.num(x.disponible), h('span', { class: 'nota' }, ' días disponibles')),
+          h('p', { class: 'meta' }, 'Asignados ' + AUS.num(x.asignado) + (x.ajustes ? ' · ajustes ' + (x.ajustes > 0 ? '+' : '') + AUS.num(x.ajustes) : '') +
+            ' · autorizados ' + AUS.num(x.autorizado) + ' · pendientes ' + AUS.num(x.pendiente))));
+      });
+      caja.append(fila, h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
+      r.ajustes.forEach((a) => caja.append(h('p', { class: 'meta' }, 'Ajuste ' + a.saldo + ' ' + (a.dias > 0 ? '+' : '') + AUS.num(a.dias) + ': ' + a.motivo)));
+    } catch (e) { caja.append(h('p', { class: 'msg-error' }, e.message)); }
     const ul = vaciar($('p-sesiones'));
     try {
       const r = await api('auth/sesiones');

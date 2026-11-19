@@ -14,5 +14,6 @@ try {
                    ['ip' => '9.9.9.9', 'ua' => 'worker', 'cfg' => cfg_defaults()]);
     echo 'OK ' . $r['codigo'];
 } catch (ApiError $e) {
-    echo (($e->extra['codigo'] ?? '') === 'sin_cupo' ? 'SIN_CUPO' : 'ERROR ' . $e->getMessage());
+    $c = $e->extra['codigo'] ?? '';
+    echo $c === 'sin_cupo' ? 'SIN_CUPO' : ($c === 'sin_saldo' ? 'SIN_SALDO' : 'ERROR ' . $e->getMessage());
 }

@@ -29,6 +29,7 @@ $rutas = [
     ['POST', 'solicitudes',                    'h_crear',                   'sesion'],
     ['GET',  'solicitudes',                    'h_solicitudes_listar',      'sesion'],
     ['POST', 'solicitudes/(\d+)/anular',       'h_anular',                  'sesion'],
+    ['GET',  'saldos/mios',                    'h_saldos_mios',             'sesion'],
 
     ['GET',  'coord/solicitudes',              'h_coord_solicitudes',       'coord'],
     ['POST', 'coord/solicitudes/(\d+)/resolver', 'h_coord_resolver',        'coord'],
@@ -50,6 +51,8 @@ $rutas = [
     ['GET',  'coord/equipos',                  'h_coord_equipos_listar',    'coord'],
     ['POST', 'coord/equipos/(\d+)',            'h_coord_equipos_guardar',   'coord'],
     ['POST', 'coord/equipos',                  'h_coord_equipos_guardar',   'coord'],
+    ['GET',  'coord/saldos',                   'h_coord_saldos',            'coord'],
+    ['POST', 'coord/saldos/ajustar',           'h_coord_saldos_ajustar',    'coord'],
     ['GET',  'coord/tipos',                    'h_coord_tipos_listar',      'coord'],
     ['POST', 'coord/tipos/(\d+)',              'h_coord_tipo_guardar',      'coord'],
     ['POST', 'coord/tipos',                    'h_coord_tipo_guardar',      'coord'],

@@ -293,14 +293,18 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         $llenos = [];
         if ($equipo) $llenos = reg_dias_llenos($db, (int)$equipo['id'], $dias, (float)$equipo['cupo_diurno']);
         $consumoTotal = array_sum(array_column($dias, 'consumo'));
+        // Saldo (SPEC-v2 §4.5): se calcula dentro de la misma transacción que el cupo.
+        $usoSaldo = saldo_requerido($t, $dias, reg_feriados($db));
+        $revSaldo = saldo_revisar($db, $p['funcionario_id'], $t['saldo'], $usoSaldo);
 
         if ($dry) {
             // Sin datos de la persona: sin login, cualquiera podría simular a nombre de otro (bug N2).
             return ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'am' => $d['am'], 'pm' => $d['pm'], 'fraccion' => $d['fraccion']], $dias),
                     'omitidos' => $omitidos, 'habiles' => count($dias), 'consumo_total' => $consumoTotal,
-                    'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null];
+                    'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null, 'saldo' => $revSaldo];
         }
 
+        saldo_exigir($revSaldo);   // se bloquea si no alcanza (antes que el sobre cupo: eso no lo arregla)
         $justif = limpiar($in['justificacion'] ?? '', 1000);
         if ($llenos) {
             if (empty($in['acepta_sobre_cupo'])) {
@@ -333,6 +337,7 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         foreach ($dias as $d) {
             $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['am'], $d['pm'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['reemplazo_nombre']]);
         }
+        saldo_registrar_uso($db, $id, $t['saldo'], $usoSaldo);
         $porOtro = isset($meta['creada_por']) && (int)$meta['creada_por'] !== $p['funcionario_id'];
         auditar($db, 'crear', $id, "$codigo $tipo {$primera}→{$ultima}" . ($llenos ? ' SOBRE CUPO' : '') . ($porOtro ? ' (registrada por coordinación)' : ''),
                 $meta['ip'] ?? '', $meta['creada_por'] ?? $p['funcionario_id']);
@@ -393,6 +398,8 @@ function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $acept
             $eq = reg_equipo($db, (int)$s['equipo_id']);
             $llenos = reg_dias_llenos($db, (int)$eq['id'], $dias, (float)$eq['cupo_diurno'], $id);
         }
+        $uso = saldo_uso_guardado($db, $id);   // al volver a autorizar se re-verifica el saldo (sin contarse a sí misma)
+        saldo_exigir(saldo_revisar($db, (int)$s['funcionario_id'], $uso['saldo'], $uso['req'], $id));
         if ($llenos) {
             if (!$aceptaSobre) throw new ApiError('Ya no hay cupo en algunos días. Para autorizarla debe marcarse sobre cupo con justificación.', 409, ['codigo' => 'sin_cupo', 'dias_llenos' => $llenos]);
             if ($justif === '') throw new ApiError('Escribe la justificación del sobre cupo.', 422, ['codigo' => 'falta_justificacion']);

@@ -19,7 +19,46 @@ function migraciones(): array
         3 => 'mig_003_cuentas_sesiones',
         4 => 'mig_004_tipos',
         5 => 'mig_005_bloques',
+        6 => 'mig_006_saldos',
     ];
+}
+
+/** Saldos FL/ADM como libro de movimientos (SPEC-v2 §3.8). Registra lo que usan las solicitudes ya existentes. */
+function mig_006_saldos(PDO $db): void
+{
+    $db->exec(<<<'SQL'
+CREATE TABLE saldo_movimientos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  funcionario_id INTEGER NOT NULL REFERENCES funcionarios(id),
+  anio INTEGER NOT NULL,
+  saldo TEXT NOT NULL CHECK (saldo IN ('FL','ADM')),
+  clase TEXT NOT NULL CHECK (clase IN ('asignacion','ajuste')),
+  dias REAL NOT NULL,
+  motivo TEXT,
+  creado_por INTEGER REFERENCES funcionarios(id),
+  creado_en TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_saldo_asignacion ON saldo_movimientos(funcionario_id, anio, saldo) WHERE clase = 'asignacion';
+CREATE INDEX ix_saldo_func ON saldo_movimientos(funcionario_id, anio);
+CREATE TABLE solicitud_saldo (
+  solicitud_id INTEGER NOT NULL REFERENCES solicitudes(id) ON DELETE CASCADE,
+  anio INTEGER NOT NULL,
+  saldo TEXT NOT NULL CHECK (saldo IN ('FL','ADM')),
+  dias REAL NOT NULL,
+  PRIMARY KEY (solicitud_id, anio, saldo)
+);
+SQL);
+    $feriados = [];
+    foreach ($db->query('SELECT fecha FROM feriados') as $r) $feriados[$r['fecha']] = true;
+    $tipos = [];
+    foreach ($db->query('SELECT * FROM tipos_ausentismo') as $t) $tipos[$t['sigla']] = $t;
+    $dias = $db->prepare('SELECT fecha, fraccion FROM solicitud_dias WHERE solicitud_id=? ORDER BY fecha');
+    foreach ($db->query('SELECT id, tipo FROM solicitudes')->fetchAll() as $s) {
+        $t = $tipos[$s['tipo']] ?? null;
+        if (!$t || !$t['saldo']) continue;
+        $dias->execute([$s['id']]);
+        saldo_registrar_uso($db, (int)$s['id'], $t['saldo'], saldo_requerido($t, $dias->fetchAll(), $feriados));
+    }
 }
 
 /** Cupo por bloque (SPEC-v2 §4.2): cada día guarda cuánto ocupa de la mañana (am) y de la tarde (pm). */
