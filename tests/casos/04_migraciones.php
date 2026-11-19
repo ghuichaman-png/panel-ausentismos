@@ -49,8 +49,8 @@ prueba('Migraciones: la app migra sola al abrir una base antigua (sin SSH en Dre
     $p = $app . '/datos.sqlite';
     @unlink($p);
     $db = db_open($p); db_esquema_v1($db); db_sembrar_equipos($db); $db = null;   // base "publicada" sin versión
-    $r = json_decode(pedirApi($app, 'GET', 'config'), true);
-    chequear(is_array($r) && isset($r['equipos']), 'la API responde normal');
+    $r = json_decode(pedirApi($app, 'GET', 'auth/sesion'), true);   // cualquier petición abre la base
+    chequear(is_array($r) && array_key_exists('autenticado', $r), 'la API responde normal');
     $db = db_open($p);
     chequear(db_version($db) === max(array_keys(migraciones())), 'la base quedó migrada a la última versión');
     $db = null;

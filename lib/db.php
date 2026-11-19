@@ -122,11 +122,10 @@ CREATE INDEX IF NOT EXISTS ix_rate ON rate(clave, ts);
 SQL);
 }
 
-function db_sembrar_equipos(PDO $db): int
+/** Los 19 equipos iniciales (SPEC-v2 §3.1): [nombre, tiene_diurnos, tiene_turnantes, cupo]. */
+function db_equipos_iniciales(): array
 {
-    if ((int)$db->query('SELECT COUNT(*) FROM equipos')->fetchColumn() > 0) return 0;
-    // nombre, diurnos, turnantes, cupo
-    $equipos = [
+    return [
         ['H7', 1, 1, 2], ['H6', 1, 1, 2], ['UTI H5', 1, 1, 2], ['UTAC H5', 1, 0, 2], ['H5', 1, 1, 2],
         ['H3 Pensionados', 1, 0, 2], ['Q3 Neonatología', 1, 0, 2], ['Q2 UTI Qx', 0, 1, 0], ['H8', 1, 1, 2],
         ['Traumatología', 1, 0, 2], ['Neurología', 1, 0, 2], ['Cardio adultos', 1, 0, 2],
@@ -134,6 +133,12 @@ function db_sembrar_equipos(PDO $db): int
         ['Oncología', 1, 0, 2], ['Respiratorio', 1, 0, 2],
         ['Oncología infantil', 1, 0, 2], ['Neurología infantil', 1, 0, 2],
     ];
+}
+
+function db_sembrar_equipos(PDO $db): int
+{
+    if ((int)$db->query('SELECT COUNT(*) FROM equipos')->fetchColumn() > 0) return 0;
+    $equipos = db_equipos_iniciales();
     $st = $db->prepare('INSERT INTO equipos (nombre,tiene_diurnos,tiene_turnantes,cupo_diurno,activo,orden) VALUES (?,?,?,?,1,?)');
     foreach ($equipos as $i => $e) $st->execute([$e[0], $e[1], $e[2], $e[3], $i + 1]);
     return count($equipos);

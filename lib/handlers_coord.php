@@ -233,11 +233,22 @@ function h_coord_nomina_listar(PDO $db, array $p, array $in): array
     $q = texto_norm((string)($_GET['q'] ?? ''));
     if ($q !== '') { $w[] = "(f.nombre_norm LIKE ? ESCAPE '\\' OR f.rut LIKE ? ESCAPE '\\')"; $l = '%' . addcslashes($q, '%_\\') . '%'; $par[] = $l; $par[] = $l; }
     if (($_GET['activo'] ?? '') !== '') { $w[] = 'f.activo=?'; $par[] = (int)$_GET['activo']; }
-    $st = $db->prepare('SELECT f.id,f.nombre,f.rut,f.jornada,f.equipo_id,e.nombre AS equipo,f.calidad,f.telefono,f.rol,f.activo
-        FROM funcionarios f LEFT JOIN equipos e ON e.id=f.equipo_id WHERE ' . implode(' AND ', $w) . ' ORDER BY f.nombre LIMIT 1000');
+    $st = $db->prepare('SELECT f.id,f.nombre,f.rut,f.jornada,f.equipo_id,e.nombre AS equipo,f.calidad,f.telefono,f.rol,f.activo,
+            c.pin_hash IS NOT NULL AS tiene_pin, c.codigo_vence, c.bloqueado_hasta
+        FROM funcionarios f LEFT JOIN equipos e ON e.id=f.equipo_id LEFT JOIN credenciales c ON c.funcionario_id=f.id
+        WHERE ' . implode(' AND ', $w) . ' ORDER BY f.nombre LIMIT 1000');
     $st->execute($par);
     $rows = $st->fetchAll();
-    foreach ($rows as &$r) { $r['id'] = (int)$r['id']; $r['activo'] = (bool)$r['activo']; }
+    $ahora = Reloj::stamp();
+    foreach ($rows as &$r) {
+        $r['id'] = (int)$r['id']; $r['activo'] = (bool)$r['activo'];
+        // Estado de la cuenta, sin exponer hashes: sin_cuenta · codigo_pendiente · codigo_vencido · activa · bloqueada
+        $b = $r['bloqueado_hasta'];
+        $r['cuenta'] = ($b === 'manual' || ($b !== null && $ahora < $b)) ? 'bloqueada'
+            : ((int)$r['tiene_pin'] ? 'activa'
+            : ($r['codigo_vence'] !== null ? ($ahora <= $r['codigo_vence'] ? 'codigo_pendiente' : 'codigo_vencido') : 'sin_cuenta'));
+        unset($r['tiene_pin'], $r['bloqueado_hasta']);
+    }
     return ['funcionarios' => $rows];
 }
 

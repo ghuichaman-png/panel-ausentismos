@@ -1,6 +1,6 @@
 # Panel de Ausentismos · Kinesiología HPM
 
-Aplicación web para que los kinesiólogos pidan días de ausentismo, vean el calendario con cupos y consulten si su solicitud fue autorizada. Coordinación revisa y resuelve con una clave compartida. PHP 8.1+ sin Composer, SQLite, HTML/JS sin build.
+Aplicación web para que los kinesiólogos pidan días de ausentismo, vean el calendario con cupos y consulten si su solicitud fue autorizada. Cada persona entra con su RUT y un PIN; coordinación revisa y resuelve con su propia cuenta. PHP 8.1+ sin Composer, SQLite, HTML/JS sin build.
 
 No reemplaza RR.HH.: no lleva saldos de feriado ni administrativos, ni licencias médicas.
 
@@ -9,7 +9,7 @@ No reemplaza RR.HH.: no lleva saldos de feriado ni administrativos, ni licencias
 ```
 public/                 → se sube a la carpeta web (p. ej. /home/USUARIO/dominio.cl/ausentismos/)
   index.html            app pública
-  coordinacion/         vista de coordinación (clave compartida)
+  coordinacion/         vista de coordinación (rol coordinación)
   assets/               app.css, common.js, app.js, coord.js
   api.php               enrutador de la API (?r=ruta)
   app-dir.php           ruta a la carpeta privada (lib + config)
@@ -30,22 +30,21 @@ nomina-ejemplo.csv      formato de la nómina
    - `/home/USUARIO/dominio.cl/ausentismos/` → web. Sube aquí el **contenido** de `public/` (incluido `.htaccess`).
 2. **Configura.** Copia `config.example.php` como `config.php` y ajusta:
    - `db_path` → `/home/USUARIO/ausentismos-data/ausentismos.sqlite`
-   - `clave_hash` → hash de la clave de coordinación (obligatorio; ver «Acceso a coordinación»)
    - `titulo`, `logo` (opcional), límites.
 3. **Apunta la web a la carpeta privada.** Edita `app-dir.php` (en la carpeta web) y escribe `$APP_DIR_PRIVADA = '/home/USUARIO/ausentismos-app';`.
 4. **HTTPS.** En el panel de DreamHost activa Let's Encrypt para el dominio. El `.htaccess` redirige a HTTPS.
-5. **Instala.** Abre `https://dominio.cl/ausentismos/install.php` y pulsa «Instalar ahora» (crea el esquema y siembra los 19 equipos). También funciona por SSH: `php install.php`.
+5. **Instala.** Abre `https://dominio.cl/ausentismos/install.php` y completa los datos de la primera persona de coordinación y pulsa «Instalar ahora» (crea el esquema, los 19 equipos y muestra su código de activación). También funciona por SSH: `php install.php`.
 6. **Borra `install.php`** del servidor. (Aunque lo dejes, se niega a correr de nuevo porque existe `ausentismos-data/install.lock`.)
-7. Entra a `https://dominio.cl/ausentismos/coordinacion/`, carga la nómina (CSV), los feriados y ajusta los cupos.
+7. Entra a la app, activa tu cuenta con el código y, desde `coordinacion/`, carga la nómina (CSV), los feriados y ajusta los cupos.
 
-### Acceso a coordinación
+### Acceso y cuentas
 
-La vista `/coordinacion/` **siempre pide clave**: sin `clave_hash` en `config.php` no se puede entrar. (La antigua opción `coord_sin_clave` se eliminó: si aparece en un `config.php` antiguo, se ignora.) Genera el hash con:
+Cada persona entra con **su RUT y un PIN de 6 dígitos** (no hay clave compartida). La primera vez usa un **código de activación** que le entrega coordinación (sección Nómina → «Código de acceso»), lo escribe en «Activar con código» junto a su RUT y crea su PIN. En su celular la sesión dura 180 días; en un computador compartido, 30 minutos sin uso.
 
-```bash
-php -r "echo password_hash('NUEVA-CLAVE-LARGA', PASSWORD_DEFAULT), PHP_EOL;"
-```
-
+- **Primera persona de coordinación:** la crea `install.php` (o, por SSH, `php herramientas/codigo-acceso.php <RUT> --coordinacion --nombre="..." --jornada=diurno --equipo=H7 --calidad=titular`).
+- **Olvidó su PIN:** coordinación genera un código nuevo (invalida el PIN anterior y cierra sus sesiones).
+- **Emergencia** (nadie de coordinación puede entrar): por SSH, `php herramientas/codigo-acceso.php <RUT de coordinación>`.
+- Tras 5 PIN errados la cuenta se bloquea 15 minutos, luego 1 hora y después hasta que coordinación la desbloquee.
 ### Respaldo
 
 - Desde `/coordinacion` → «Exportar y respaldo» → «Descargar respaldo (.sqlite)» (usa `VACUUM INTO`, copia consistente aunque haya uso).

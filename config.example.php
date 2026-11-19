@@ -3,9 +3,8 @@
  * Copiar a config.php y ajustar. config.php NUNCA debe quedar accesible por web
  * (subirlo junto a lib/ en la carpeta privada, fuera del dominio público).
  *
- * Generar el hash de la clave de coordinación:
- *   - abrir install.php en el navegador (sección "Generar hash"), o
- *   - php -r "echo password_hash('MI-CLAVE', PASSWORD_DEFAULT), PHP_EOL;"
+ * El acceso es por usuario (RUT + PIN). La primera persona de coordinación se crea en install.php
+ * (o con: php herramientas/codigo-acceso.php <RUT> --coordinacion ...).
  */
 return [
     'titulo'   => 'Ausentismos · Kinesiología HPM',
@@ -14,17 +13,12 @@ return [
     // Archivo SQLite: debe estar FUERA de la carpeta pública.
     'db_path'  => '/home/USUARIO/ausentismos-data/ausentismos.sqlite',
 
-    // password_hash() de la clave compartida de coordinación (obligatoria: sin ella, coordinación no abre). Ver README.
-    'clave_hash' => '',
-
     'timezone' => 'America/Santiago',
     'forzar_https' => true,          // poner false solo en desarrollo local
 
     // Anti-abuso
-    'limite_envios_hora'   => 10,    // solicitudes por IP por hora
-    'login_max_intentos'   => 5,     // intentos fallidos por IP
-    'login_bloqueo_min'    => 15,    // minutos de bloqueo
-    'sesion_horas'         => 8,     // inactividad máxima de la sesión de coordinación
+    'limite_envios_hora'   => 10,    // solicitudes por persona por hora
+    'limite_ip_auth_hora'  => 300,   // intentos de ingreso por IP por hora (alto: todo el hospital comparte IP)
 
     // Reglas
     'fl_largo_dias_habiles' => 5,    // FL con >= N días hábiles (titular/contrata) no consume cupo

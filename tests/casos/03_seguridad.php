@@ -5,9 +5,10 @@ declare(strict_types=1);
 
 prueba('Bug N1: coordinación nunca queda abierta sin clave, aunque config.php traiga coord_sin_clave', function () {
     $app = appTemporal(['coord_sin_clave' => true, 'clave_hash' => password_hash('clave-de-prueba-larga', PASSWORD_DEFAULT)]);
-    $s = json_decode(pedirApi($app, 'GET', 'coord/sesion'), true);
-    chequear(is_array($s) && ($s['autenticado'] ?? null) === false, 'coord/sesion sin login no está autenticada: ' . json_encode($s));
-    chequear(is_array($s) && array_key_exists('csrf', $s) && $s['csrf'] === null, 'coord/sesion sin login no entrega token CSRF');
+    // Desde la etapa 2 la sesión es por usuario (auth/sesion); el objetivo del test no cambia.
+    $s = json_decode(pedirApi($app, 'GET', 'auth/sesion'), true);
+    chequear(is_array($s) && ($s['autenticado'] ?? null) === false, 'sin login no hay sesión: ' . json_encode($s));
+    chequear(is_array($s) && array_key_exists('csrf', $s) && $s['csrf'] === null, 'sin login no se entrega token CSRF');
     $r = pedirApi($app, 'GET', 'coord/respaldo');
     chequear(!str_starts_with($r, 'SQLite format 3'), 'coord/respaldo sin login no entrega la base de datos');
     $j = json_decode($r, true);

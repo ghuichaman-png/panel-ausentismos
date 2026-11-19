@@ -24,10 +24,10 @@ if (array_key_exists('cuerpo', $extra)) define('AUS_PRUEBA_CUERPO', json_encode(
 ini_set('session.save_path', $appDir);
 
 register_shutdown_function(function () {
+    // En CLI no hay cabeceras: lib/auth.php anota en $GLOBALS['__aus_cookies'] las cookies que habría enviado.
     $c = $_COOKIE;
-    if (session_status() === PHP_SESSION_ACTIVE || session_id() !== '') $c[session_name()] = session_id();
+    foreach (($GLOBALS['__aus_cookies'] ?? []) as $k => $v) { if ($v === '') unset($c[$k]); else $c[$k] = $v; }
     fwrite(STDERR, "\nCOOKIES:" . json_encode($c) . "\n");
 });
 
-if (isset($_COOKIE['aus_coord'])) session_id($_COOKIE['aus_coord']);
 require dirname(__DIR__) . '/public/api.php';
