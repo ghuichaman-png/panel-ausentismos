@@ -119,7 +119,7 @@
       if (s.tipo === 'CT') card.append(h('div', null, 'Cambia con ' + s.cambio_con + (s.devolucion_fecha ? ' · devuelve ' + AUS.fmt(s.devolucion_fecha) + ' (' + s.devolucion_turno + ')' : '')));
     } else if (s.ocupacion.length) {
       const cls = { lleno: 'chip-critico', parcial: 'chip-precaucion', libre: 'chip-normal' };
-      const chips = s.ocupacion.slice(0, 14).map((o) => AUS.chip(AUS.fmt(o.fecha).slice(0, 5) + ': ' + AUS.num(o.ocupado) + ' de ' + AUS.num(o.cupo), cls[AUS.estadoCupo(o.ocupado, o.cupo)]));
+      const chips = s.ocupacion.slice(0, 14).map((o) => AUS.chip(AUS.fmt(o.fecha).slice(0, 5) + ': ' + AUS.textoBloques({ am: o.am, pm: o.pm, total: o.ocupado }, o.cupo), cls[AUS.estadoCupo(o.ocupado, o.cupo)]));
       if (s.ocupacion.length > 14) chips.push(AUS.chip('+' + (s.ocupacion.length - 14) + ' más', 'chip-neutro'));
       card.append(h('div', null, h('span', { class: 'etiqueta' }, 'Ocupación del equipo (incluye esta solicitud)'), h('div', { class: 'chips' }, chips)));
     }
@@ -159,7 +159,7 @@
     catch (e) {
       if (!(e.data && e.data.codigo === 'sin_cupo')) throw e;
       const ta = h('textarea', { class: 'input', maxlength: '1000' });
-      const llenos = e.data.dias_llenos.map((d) => AUS.fmt(d.fecha) + ' (' + AUS.num(d.ocupado) + ' de ' + AUS.num(d.cupo) + ')').join(', ');
+      const llenos = e.data.dias_llenos.map((d) => AUS.fmt(d.fecha) + ' (' + AUS.bloquesTxt(d.bloques) + ': ' + AUS.num(d.ocupado) + ' de ' + AUS.num(d.cupo) + ')').join(', ');
       const just = await dialogo('Ya no hay cupo', h('div', { class: 'vista' }, h('p', { class: 'aviso aviso-precaucion' }, 'Sin cupo en: ' + llenos + '. Para autorizarla debe quedar como sobre cupo con justificación.'), campo('Justificación', ta)),
         [{ texto: 'Cancelar', valor: null }, { texto: 'Autorizar sobre cupo', clase: 'btn-primario', accion: () => { if (!ta.value.trim()) throw new Error('La justificación es obligatoria.'); return ta.value.trim(); } }]);
       if (!just) throw new Error('Cancelado.');

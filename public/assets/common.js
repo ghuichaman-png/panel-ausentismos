@@ -158,15 +158,24 @@
     return m;
   };
   AUS.equipoPorId = (data, id) => data.equipos.find((e) => e.id === id);
+  // Ocupación de un equipo en un día, por bloque (SPEC-v2 §4.2). total = el bloque más ocupado.
   AUS.ocupacion = function (lista, equipoId) {
-    let pend = 0, aut = 0, ceros = 0;
+    let am = 0, pm = 0, pend = 0, ceros = 0;
     lista.forEach((a) => {
       if (a.jornada !== 'diurno' || a.equipo_id !== equipoId) return;
       if (a.consumo <= 0) ceros++;
-      if (a.estado === 'pendiente') pend += a.consumo; else aut += a.consumo;
+      am += a.am || 0; pm += a.pm || 0;
+      if (a.estado === 'pendiente') pend += (a.am || 0) + (a.pm || 0);
     });
-    return { total: pend + aut, pend, aut, ceros };
+    return { am, pm, total: Math.max(am, pm), pend, ceros };
   };
+  // Texto de ocupación por bloque: «1 de 2» si mañana y tarde coinciden; si no, «M 2 · T 1».
+  AUS.textoBloques = function (oc, cupo) {
+    if (Math.abs(oc.am - oc.pm) < EPS) return AUS.num(oc.total) + ' de ' + AUS.num(cupo);
+    return 'M ' + AUS.num(oc.am) + ' · T ' + AUS.num(oc.pm);
+  };
+  AUS.ariaBloques = (oc, cupo) => 'mañana ' + AUS.num(oc.am) + ' de ' + AUS.num(cupo) + ', tarde ' + AUS.num(oc.pm) + ' de ' + AUS.num(cupo);
+  AUS.bloquesTxt = (b) => (b.length === 2 ? 'mañana y tarde' : b[0] === 'am' ? 'mañana' : 'tarde');
   AUS.estadoCupo = function (total, cupo) {
     if (cupo <= EPS || total >= cupo - EPS) return 'lleno';
     return total > EPS ? 'parcial' : 'libre';
@@ -199,15 +208,14 @@
         else {
           const oc = AUS.ocupacion(lista, eq.id);
           const e = AUS.estadoCupo(oc.total, eq.cupo_diurno);
+          const amLleno = AUS.estadoCupo(oc.am, eq.cupo_diurno) === 'lleno', pmLleno = AUS.estadoCupo(oc.pm, eq.cupo_diurno) === 'lleno';
           clase = e;
-          est = e === 'libre' ? 'Libre' : e === 'lleno' ? 'Lleno' : AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno);
+          est = e === 'libre' ? 'Libre' : (amLleno && pmLleno) ? 'Lleno' : amLleno ? 'Mañana llena' : pmLleno ? 'Tarde llena' : AUS.textoBloques(oc, eq.cupo_diurno);
           if (oc.pend > EPS) { clase += ' pend'; sub = 'pendiente'; }
-          if (oc.ceros) sub = (sub ? sub + ' · ' : '') + '+' + oc.ceros + ' FL';
-          aria = e === 'lleno' ? 'lleno, ' + AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados'
-            : e === 'libre' ? 'libre, 0 de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados'
-              : AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados';
+          if (oc.ceros) sub = (sub ? sub + ' · ' : '') + '+' + oc.ceros + ' sin cupo';
+          aria = (e === 'libre' ? 'libre, ' : (amLleno && pmLleno) ? 'lleno, ' : '') + AUS.ariaBloques(oc, eq.cupo_diurno);
           if (oc.pend > EPS) aria += ', con solicitudes pendientes';
-          if (oc.ceros) aria += ', más ' + oc.ceros + ' con feriado legal largo';
+          if (oc.ceros) aria += ', más ' + oc.ceros + ' ausente(s) que no usan cupo';
         }
       } else if (vista.tipo === 'todos') {
         const nombres = new Set(lista.map((a) => a.nombre + '|' + a.solicitud_id));
@@ -279,12 +287,12 @@
       const eq = AUS.equipoPorId(data, vista.equipoId);
       const arr = lista.filter((a) => a.jornada === 'diurno' && a.equipo_id === eq.id);
       const oc = AUS.ocupacion(lista, eq.id);
-      caja.append(AUS.h('p', null, eq.nombre + ': ' + AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados.'));
+      caja.append(AUS.h('p', null, eq.nombre + ': ' + AUS.ariaBloques(oc, eq.cupo_diurno) + ' cupos ocupados.'));
       bloque('Ausentes del equipo', arr);
     } else if (vista.tipo === 'todos') {
       data.equipos.filter((e) => e.tiene_diurnos).forEach((e) => {
         const arr = lista.filter((a) => a.jornada === 'diurno' && a.equipo_id === e.id);
-        if (arr.length) bloque(e.nombre + ' · ' + AUS.num(AUS.ocupacion(lista, e.id).total) + ' de ' + AUS.num(e.cupo_diurno), arr);
+        if (arr.length) bloque(e.nombre + ' · ' + AUS.textoBloques(AUS.ocupacion(lista, e.id), e.cupo_diurno), arr);
       });
       const t = lista.filter((a) => a.jornada === 'turnante');
       if (t.length) bloque('Turnantes', t);

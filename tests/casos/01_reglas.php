@@ -28,12 +28,13 @@ prueba('Diurno ADM completo, cupo 2: ocupa 1; el tercero es rechazado; con justi
     chequear((int)$fila['sobre_cupo'] === 1 && $fila['justificacion_sobre_cupo'] !== null, 'se guarda la justificación');
 });
 
-prueba('Dos ADM medio día (AM + PM) suman 1', function () {
+prueba('Dos ADM medio día (AM + PM): cada uno ocupa 1 en su bloque (SPEC-v2 §4.2; antes «suman 1»)', function () {
     $db = nuevaDb();
     $a = mk($db, 'Ana Uno', 'diurno', 'H6'); $b = mk($db, 'Beto Dos', 'diurno', 'H6');
     crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'am']);
     crear($db, ['funcionario_id' => $b, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'pm']);
-    chequear(ocup($db, 'H6', '2026-12-10') === 1.0, 'AM + PM = 1');
+    $o = reg_ocupacion_bloques($db, eid($db, 'H6'), '2026-12-10', '2026-12-10')['2026-12-10'];
+    chequear($o === ['am' => 1.0, 'pm' => 1.0], 'mañana 1 y tarde 1');
 });
 
 prueba('FL de 4 días hábiles de titular consume 1 por día', function () {

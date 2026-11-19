@@ -208,11 +208,11 @@
       box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
       if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
-      else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' (cupo diario del equipo: ' + AUS.num(s.cupo) + ').'));
+      else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' día(s). Cupo del equipo: ' + AUS.num(s.cupo) + ' en la mañana y ' + AUS.num(s.cupo) + ' en la tarde.'));
       if (s.dias_llenos.length) {
         F.llenos = s.dias_llenos;
         box.append(h('div', { class: 'aviso aviso-precaucion' }, h('b', null, 'Sin cupo: '),
-          s.dias_llenos.map((d) => AUS.fmt(d.fecha).slice(0, 5) + ' (' + AUS.num(d.ocupado) + ' de ' + AUS.num(d.cupo) + ')').join(', ') +
+          s.dias_llenos.map((d) => AUS.fmt(d.fecha).slice(0, 5) + ' (' + AUS.bloquesTxt(d.bloques) + ': ' + AUS.num(d.ocupado) + ' de ' + AUS.num(d.cupo) + ')').join(', ') +
           '. Puedes cambiar las fechas o enviarla igualmente como solicitud sobre cupo con una justificación.'));
         mostrarSobre();
       } else box.append(h('div', { class: 'aviso aviso-normal' }, h('b', null, 'Hay cupo disponible'), ' en esas fechas (queda pendiente de autorización).'));

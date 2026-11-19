@@ -50,7 +50,7 @@ function cal_datos(PDO $db, string $mes, bool $coord): array
     $desde = $mes . '-01';
     $hasta = (new DateTimeImmutable($desde))->modify('last day of this month')->format('Y-m-d');
 
-    $cols = 'sd.fecha, sd.consumo, sd.fraccion, sd.turno, sd.unidad_turno_id AS unidad_id, sd.reemplazo_nombre AS reemplazo,
+    $cols = 'sd.fecha, sd.consumo, sd.am, sd.pm, sd.fraccion, sd.turno, sd.unidad_turno_id AS unidad_id, sd.reemplazo_nombre AS reemplazo,
              s.id AS solicitud_id, s.nombre, s.jornada, s.equipo_id, s.tipo, t.etiqueta_publica AS etiqueta, s.estado, s.cambio_con';
     if ($coord) $cols .= ', s.codigo, s.rut, s.calidad, s.sobre_cupo, s.justificacion_sobre_cupo AS justificacion, s.comentario, s.fuera_de_nomina';
     $st = $db->prepare("SELECT $cols FROM solicitud_dias sd JOIN solicitudes s ON s.id=sd.solicitud_id LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo
@@ -59,6 +59,8 @@ function cal_datos(PDO $db, string $mes, bool $coord): array
     $aus = $st->fetchAll();
     foreach ($aus as &$a) {
         $a['consumo'] = (float)$a['consumo'];
+        $a['am'] = (float)$a['am'];
+        $a['pm'] = (float)$a['pm'];
         $a['solicitud_id'] = (int)$a['solicitud_id'];
         $a['equipo_id'] = $a['equipo_id'] !== null ? (int)$a['equipo_id'] : null;
         $a['unidad_id'] = $a['unidad_id'] !== null ? (int)$a['unidad_id'] : null;

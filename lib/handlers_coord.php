@@ -38,7 +38,7 @@ function h_coord_solicitudes(PDO $db, array $p, array $in): array
     $rows = $st->fetchAll();
     $hoy = Reloj::hoy();
     $cupos = [];
-    $diasSt = $db->prepare('SELECT fecha, consumo, fraccion, turno, unidad_turno_id, reemplazo_nombre FROM solicitud_dias WHERE solicitud_id=? ORDER BY fecha, turno');
+    $diasSt = $db->prepare('SELECT fecha, consumo, am, pm, fraccion, turno, unidad_turno_id, reemplazo_nombre FROM solicitud_dias WHERE solicitud_id=? ORDER BY fecha, turno');
     foreach ($rows as &$r) {
         $r['id'] = (int)$r['id'];
         foreach (['sobre_cupo', 'fuera_de_nomina'] as $b) $r[$b] = (bool)$r[$b];
@@ -49,8 +49,11 @@ function h_coord_solicitudes(PDO $db, array $p, array $in): array
         if ($r['jornada'] === 'diurno' && $r['equipo_id']) {
             $eid = (int)$r['equipo_id'];
             if (!isset($cupos[$eid])) $cupos[$eid] = (float)reg_equipo($db, $eid)['cupo_diurno'];
-            $oc = reg_ocupacion($db, $eid, $r['fecha_inicio'], $r['fecha_fin']);
-            foreach ($r['dias'] as $d) $r['ocupacion'][] = ['fecha' => $d['fecha'], 'ocupado' => $oc[$d['fecha']] ?? 0.0, 'cupo' => $cupos[$eid]];
+            $oc = reg_ocupacion_bloques($db, $eid, $r['fecha_inicio'], $r['fecha_fin']);
+            foreach ($r['dias'] as $d) {
+                $b = $oc[$d['fecha']] ?? ['am' => 0.0, 'pm' => 0.0];
+                $r['ocupacion'][] = ['fecha' => $d['fecha'], 'am' => $b['am'], 'pm' => $b['pm'], 'ocupado' => max($b['am'], $b['pm']), 'cupo' => $cupos[$eid]];
+            }
         }
     }
     return ['solicitudes' => $rows, 'hoy' => $hoy, 'limite' => count($rows) >= 300];

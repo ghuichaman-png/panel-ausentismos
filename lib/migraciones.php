@@ -18,7 +18,18 @@ function migraciones(): array
         2 => 'mig_002_telefono_rol',
         3 => 'mig_003_cuentas_sesiones',
         4 => 'mig_004_tipos',
+        5 => 'mig_005_bloques',
     ];
+}
+
+/** Cupo por bloque (SPEC-v2 §4.2): cada día guarda cuánto ocupa de la mañana (am) y de la tarde (pm). */
+function mig_005_bloques(PDO $db): void
+{
+    $db->exec('ALTER TABLE solicitud_dias ADD COLUMN am REAL NOT NULL DEFAULT 0');
+    $db->exec('ALTER TABLE solicitud_dias ADD COLUMN pm REAL NOT NULL DEFAULT 0');
+    $db->exec("UPDATE solicitud_dias SET
+        am = CASE WHEN consumo > 0 AND fraccion IN ('completo','am') THEN 1 ELSE 0 END,
+        pm = CASE WHEN consumo > 0 AND fraccion IN ('completo','pm') THEN 1 ELSE 0 END");
 }
 
 /**

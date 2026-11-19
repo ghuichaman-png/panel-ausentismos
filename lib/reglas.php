@@ -94,7 +94,11 @@ function reg_dias_diurno(array $t, string $fi, string $ff, string $fraccion, str
 
     $dias = [];
     foreach ($habiles as $f) {
+        // Bloques: día completo ocupa mañana y tarde; medio día, solo su bloque (SPEC-v2 §4.2).
+        $usa = $consumo > 0 ? 1.0 : 0.0;
         $dias[] = ['fecha' => $f, 'consumo' => $consumo, 'fraccion' => $fraccion,
+                   'am' => in_array($fraccion, ['completo', 'am'], true) ? $usa : 0.0,
+                   'pm' => in_array($fraccion, ['completo', 'pm'], true) ? $usa : 0.0,
                    'turno' => null, 'unidad_turno_id' => null, 'reemplazo_nombre' => null];
     }
     return ['dias' => $dias, 'omitidos' => $omitidos, 'habiles' => $n];
@@ -130,7 +134,7 @@ function reg_dias_turnante(array $in, array $t, array $unidades, array &$extra):
             $reemplazo = limpiar($d['reemplazo'] ?? '', 120) ?: null;
             if ($t['exige_reemplazo'] && $reemplazo === null) throw new ApiError('Indica quién cubre tu turno del ' . fecha_cl($d['fecha']) . '.', 422);
         }
-        $dias[] = ['fecha' => $d['fecha'], 'consumo' => 0.0, 'fraccion' => $fraccion, 'turno' => $turno,
+        $dias[] = ['fecha' => $d['fecha'], 'consumo' => 0.0, 'am' => 0.0, 'pm' => 0.0, 'fraccion' => $fraccion, 'turno' => $turno,
                    'unidad_turno_id' => $unidad, 'reemplazo_nombre' => $reemplazo];
     }
     usort($dias, fn($a, $b) => [$a['fecha'], $a['turno']] <=> [$b['fecha'], $b['turno']]);
@@ -176,31 +180,43 @@ function reg_superposicion(PDO $db, string $rut, array $dias, ?int $excluir = nu
     }
 }
 
-/** Ocupación de cupo (suma de consumo de pendientes + autorizadas de diurnos) por fecha. */
-function reg_ocupacion(PDO $db, int $equipoId, string $desde, string $hasta, ?int $excluir = null): array
+/** Ocupación por bloque (pendientes + autorizadas de diurnos): fecha => ['am' => x, 'pm' => y]. */
+function reg_ocupacion_bloques(PDO $db, int $equipoId, string $desde, string $hasta, ?int $excluir = null): array
 {
-    $st = $db->prepare("SELECT sd.fecha, SUM(sd.consumo) AS oc
+    $st = $db->prepare("SELECT sd.fecha, SUM(sd.am) AS am, SUM(sd.pm) AS pm
         FROM solicitud_dias sd JOIN solicitudes s ON s.id = sd.solicitud_id
         WHERE s.estado IN ('pendiente','autorizada') AND s.jornada = 'diurno'
           AND sd.equipo_id = ? AND s.id <> ? AND sd.fecha BETWEEN ? AND ?
         GROUP BY sd.fecha");
     $st->execute([$equipoId, $excluir ?? 0, $desde, $hasta]);
     $out = [];
-    foreach ($st->fetchAll() as $r) $out[$r['fecha']] = (float)$r['oc'];
+    foreach ($st->fetchAll() as $r) $out[$r['fecha']] = ['am' => (float)$r['am'], 'pm' => (float)$r['pm']];
     return $out;
 }
 
+/** Ocupación de un día = la del bloque más ocupado (para resúmenes de un solo número). */
+function reg_ocupacion(PDO $db, int $equipoId, string $desde, string $hasta, ?int $excluir = null): array
+{
+    return array_map(fn($b) => max($b['am'], $b['pm']), reg_ocupacion_bloques($db, $equipoId, $desde, $hasta, $excluir));
+}
+
+/** Días en que algún bloque pedido quedaría sobre el cupo. Cada entrada indica qué bloques ('am', 'pm') se llenan. */
 function reg_dias_llenos(PDO $db, int $equipoId, array $dias, float $cupo, ?int $excluir = null): array
 {
     if (!$dias) return [];
     $fechas = array_column($dias, 'fecha');
-    $oc = reg_ocupacion($db, $equipoId, min($fechas), max($fechas), $excluir);
+    $oc = reg_ocupacion_bloques($db, $equipoId, min($fechas), max($fechas), $excluir);
     $llenos = [];
     foreach ($dias as $d) {
-        if ($d['consumo'] <= 0) continue;
-        $o = $oc[$d['fecha']] ?? 0.0;
-        if ($o + $d['consumo'] > $cupo + REG_EPS) {
-            $llenos[] = ['fecha' => $d['fecha'], 'ocupado' => $o, 'cupo' => $cupo, 'consumo' => (float)$d['consumo']];
+        $o = $oc[$d['fecha']] ?? ['am' => 0.0, 'pm' => 0.0];
+        $bloques = [];
+        foreach (['am', 'pm'] as $b) {
+            $pide = (float)($d[$b] ?? 0);
+            if ($pide > 0 && $o[$b] + $pide > $cupo + REG_EPS) $bloques[] = $b;
+        }
+        if ($bloques) {
+            $llenos[] = ['fecha' => $d['fecha'], 'bloques' => $bloques, 'ocupado' => max(array_map(fn($b) => $o[$b], $bloques)),
+                         'ocupado_am' => $o['am'], 'ocupado_pm' => $o['pm'], 'cupo' => $cupo, 'consumo' => (float)$d['consumo']];
         }
     }
     return $llenos;
@@ -280,7 +296,7 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
 
         if ($dry) {
             // Sin datos de la persona: sin login, cualquiera podría simular a nombre de otro (bug N2).
-            return ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'fraccion' => $d['fraccion']], $dias),
+            return ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'am' => $d['am'], 'pm' => $d['pm'], 'fraccion' => $d['fraccion']], $dias),
                     'omitidos' => $omitidos, 'habiles' => count($dias), 'consumo_total' => $consumoTotal,
                     'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null];
         }
@@ -313,9 +329,9 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
                       $meta['creada_por'] ?? $p['funcionario_id']]);
         $id = (int)$db->lastInsertId();
 
-        $ins = $db->prepare('INSERT INTO solicitud_dias (solicitud_id,fecha,equipo_id,consumo,fraccion,turno,unidad_turno_id,reemplazo_nombre) VALUES (?,?,?,?,?,?,?,?)');
+        $ins = $db->prepare('INSERT INTO solicitud_dias (solicitud_id,fecha,equipo_id,consumo,am,pm,fraccion,turno,unidad_turno_id,reemplazo_nombre) VALUES (?,?,?,?,?,?,?,?,?,?)');
         foreach ($dias as $d) {
-            $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['reemplazo_nombre']]);
+            $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['am'], $d['pm'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['reemplazo_nombre']]);
         }
         $porOtro = isset($meta['creada_por']) && (int)$meta['creada_por'] !== $p['funcionario_id'];
         auditar($db, 'crear', $id, "$codigo $tipo {$primera}→{$ultima}" . ($llenos ? ' SOBRE CUPO' : '') . ($porOtro ? ' (registrada por coordinación)' : ''),
