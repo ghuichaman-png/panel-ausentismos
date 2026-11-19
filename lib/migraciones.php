@@ -20,7 +20,37 @@ function migraciones(): array
         4 => 'mig_004_tipos',
         5 => 'mig_005_bloques',
         6 => 'mig_006_saldos',
+        7 => 'mig_007_turnos',
     ];
+}
+
+/** Calendario de turnos (SPEC-v2 §3.7) y vínculos de las solicitudes con turnos, reemplazos y cambios. */
+function mig_007_turnos(PDO $db): void
+{
+    $db->exec(<<<'SQL'
+CREATE TABLE turnos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,
+  tipo TEXT NOT NULL CHECK (tipo IN ('largo','noche')),
+  unidad_id INTEGER NOT NULL REFERENCES equipos(id),
+  titular_id INTEGER NOT NULL REFERENCES funcionarios(id),
+  titular_original_id INTEGER REFERENCES funcionarios(id),
+  cubierto_por_id INTEGER REFERENCES funcionarios(id),
+  es_extra INTEGER NOT NULL DEFAULT 0,
+  horas_override REAL,
+  origen TEXT NOT NULL DEFAULT 'carga' CHECK (origen IN ('carga','ausencia','cambio','licencia')),
+  solicitud_id INTEGER REFERENCES solicitudes(id),
+  creado_en TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ux_turno ON turnos(fecha, tipo, unidad_id, titular_id);
+CREATE INDEX ix_turnos_titular ON turnos(titular_id, fecha);
+CREATE INDEX ix_turnos_fecha ON turnos(fecha, unidad_id);
+CREATE INDEX ix_turnos_solicitud ON turnos(solicitud_id);
+ALTER TABLE solicitud_dias ADD COLUMN turno_id INTEGER REFERENCES turnos(id);
+ALTER TABLE solicitud_dias ADD COLUMN reemplazo_id INTEGER REFERENCES funcionarios(id);
+ALTER TABLE solicitudes ADD COLUMN cambio_con_id INTEGER REFERENCES funcionarios(id);
+ALTER TABLE solicitudes ADD COLUMN devolucion_turno_id INTEGER REFERENCES turnos(id);
+SQL);
 }
 
 /** Saldos FL/ADM como libro de movimientos (SPEC-v2 §3.8). Registra lo que usan las solicitudes ya existentes. */

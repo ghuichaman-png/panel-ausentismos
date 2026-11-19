@@ -10,6 +10,7 @@ require_once __DIR__ . '/notificar.php';
 require_once __DIR__ . '/reglas.php';
 require_once __DIR__ . '/cuentas.php';
 require_once __DIR__ . '/saldos.php';
+require_once __DIR__ . '/turnos.php';
 
 function cfg_defaults(): array
 {
