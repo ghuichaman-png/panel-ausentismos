@@ -76,12 +76,12 @@
   AUS.num = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
   AUS.plural = (n, s, p) => n + ' ' + (n === 1 ? s : p);
 
-  AUS.tipoTxt = function (tipo, fr) {
-    if (tipo === 'FL') return 'FL';
-    if (tipo === 'CT') return 'CT';
-    return { am: 'ADM ½ AM', pm: 'ADM ½ PM', primera_mitad: 'ADM ½ 1.ª mitad', segunda_mitad: 'ADM ½ 2.ª mitad' }[fr] || 'ADM';
+  // Texto corto de un tipo: su etiqueta pública (o la sigla) más la fracción si es medio día.
+  AUS.tipoTxt = function (tipo, fr, etiqueta) {
+    const base = etiqueta || tipo;
+    const media = { am: ' ½ AM', pm: ' ½ PM', primera_mitad: ' ½ 1.ª mitad', segunda_mitad: ' ½ 2.ª mitad' }[fr];
+    return base + (media || '');
   };
-  AUS.tipoLargo = { FL: 'Feriado legal', ADM: 'Permiso administrativo', CT: 'Cambio de turno' };
   AUS.estadoChip = function (estado) {
     const m = { pendiente: ['chip-info', 'Pendiente'], autorizada: ['chip-normal', 'Autorizada'], rechazada: ['chip-critico', 'Rechazada'], anulada: ['chip-neutro', 'Anulada'] }[estado] || ['chip-neutro', estado];
     return AUS.h('span', { class: 'chip ' + m[0] }, m[1]);
@@ -259,7 +259,7 @@
     const caja = AUS.h('div', { class: 'detalle tarjeta' }, AUS.h('h3', null, AUS.fmtLargo(fecha) + ' · ' + AUS.fmt(fecha)));
     if (feriado) caja.append(AUS.h('p', { class: 'nota' }, 'Feriado: ' + feriado));
     const fila = (a) => {
-      const li = AUS.h('li', null, AUS.h('strong', null, a.nombre), AUS.chip(AUS.tipoTxt(a.tipo, a.fraccion), 'chip-neutro'), AUS.estadoChip(a.estado));
+      const li = AUS.h('li', null, AUS.h('strong', null, a.nombre), AUS.chip(AUS.tipoTxt(a.tipo, a.fraccion, a.etiqueta), 'chip-neutro'), AUS.estadoChip(a.estado));
       if (a.jornada === 'turnante') {
         const u = a.unidad_id ? (AUS.equipoPorId(data, a.unidad_id) || {}).nombre : '';
         const partes = [a.turno ? 'turno ' + a.turno : '', u, a.tipo === 'CT' ? (a.cambio_con ? 'cambia con ' + a.cambio_con : '') : (a.reemplazo ? 'cubre ' + a.reemplazo : '')].filter(Boolean);

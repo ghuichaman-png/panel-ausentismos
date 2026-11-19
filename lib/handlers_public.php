@@ -10,8 +10,18 @@ function h_config(PDO $db, array $p, array $in): array
         $e['tiene_turnantes'] = (bool)$e['tiene_turnantes'];
         $e['cupo_diurno'] = (float)$e['cupo_diurno'];
     }
-    return ['titulo' => cfg('titulo'), 'logo' => cfg('logo'), 'hoy' => Reloj::hoy(), 'equipos' => $eq,
-            'tipos' => ['FL' => 'Feriado legal', 'ADM' => 'Permiso administrativo', 'CT' => 'Cambio de turno']];
+    return ['titulo' => cfg('titulo'), 'logo' => cfg('logo'), 'hoy' => Reloj::hoy(), 'equipos' => $eq, 'tipos' => tipos_listar($db, true)];
+}
+
+/** Tipos de ausentismo con su configuración (para el formulario y la vista de coordinación). */
+function tipos_listar(PDO $db, bool $soloActivos): array
+{
+    $r = $db->query('SELECT * FROM tipos_ausentismo' . ($soloActivos ? ' WHERE activo=1' : '') . ' ORDER BY orden, nombre')->fetchAll();
+    foreach ($r as &$t) {
+        $t['id'] = (int)$t['id']; $t['orden'] = (int)$t['orden'];
+        foreach (['consume_cupo', 'medio_dia', 'exige_reemplazo', 'es_cambio_turno', 'precargado', 'activo'] as $k) $t[$k] = (bool)$t[$k];
+    }
+    return $r;
 }
 
 function h_nomina_buscar(PDO $db, array $p, array $in): array
@@ -41,9 +51,9 @@ function cal_datos(PDO $db, string $mes, bool $coord): array
     $hasta = (new DateTimeImmutable($desde))->modify('last day of this month')->format('Y-m-d');
 
     $cols = 'sd.fecha, sd.consumo, sd.fraccion, sd.turno, sd.unidad_turno_id AS unidad_id, sd.reemplazo_nombre AS reemplazo,
-             s.id AS solicitud_id, s.nombre, s.jornada, s.equipo_id, s.tipo, s.estado, s.cambio_con';
+             s.id AS solicitud_id, s.nombre, s.jornada, s.equipo_id, s.tipo, t.etiqueta_publica AS etiqueta, s.estado, s.cambio_con';
     if ($coord) $cols .= ', s.codigo, s.rut, s.calidad, s.sobre_cupo, s.justificacion_sobre_cupo AS justificacion, s.comentario, s.fuera_de_nomina';
-    $st = $db->prepare("SELECT $cols FROM solicitud_dias sd JOIN solicitudes s ON s.id=sd.solicitud_id
+    $st = $db->prepare("SELECT $cols FROM solicitud_dias sd JOIN solicitudes s ON s.id=sd.solicitud_id LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo
         WHERE s.estado IN ('pendiente','autorizada') AND sd.fecha BETWEEN ? AND ? ORDER BY sd.fecha, s.nombre");
     $st->execute([$desde, $hasta]);
     $aus = $st->fetchAll();
@@ -107,7 +117,7 @@ function h_crear(PDO $db, array $p, array $in): array
 function sol_publica(array $s): array
 {
     return [
-        'id' => (int)$s['id'], 'codigo' => $s['codigo'], 'nombre' => $s['nombre'], 'tipo' => $s['tipo'],
+        'id' => (int)$s['id'], 'codigo' => $s['codigo'], 'nombre' => $s['nombre'], 'tipo' => $s['tipo'], 'etiqueta' => $s['etiqueta'] ?? null,
         'fecha_inicio' => $s['fecha_inicio'], 'fecha_fin' => $s['fecha_fin'], 'fraccion' => $s['fraccion'],
         'turno' => $s['turno'], 'estado' => $s['estado'],
         'motivo' => $s['estado'] === 'rechazada' ? $s['motivo_resolucion'] : null,
@@ -121,7 +131,8 @@ function h_solicitudes_listar(PDO $db, array $p, array $in): array
 {
     $yo = yo();
     $codigo = strtoupper(limpiar($_GET['codigo'] ?? '', 30));
-    $sql = 'SELECT * FROM solicitudes WHERE funcionario_id=?' . ($codigo !== '' ? ' AND codigo=?' : '') . ' ORDER BY fecha_inicio DESC, id DESC LIMIT 200';
+    $sql = 'SELECT s.*, t.etiqueta_publica AS etiqueta FROM solicitudes s LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo
+            WHERE s.funcionario_id=?' . ($codigo !== '' ? ' AND s.codigo=?' : '') . ' ORDER BY s.fecha_inicio DESC, s.id DESC LIMIT 200';
     $st = $db->prepare($sql);
     $st->execute($codigo !== '' ? [$yo, $codigo] : [$yo]);
     return ['solicitudes' => array_map('sol_publica', $st->fetchAll())];

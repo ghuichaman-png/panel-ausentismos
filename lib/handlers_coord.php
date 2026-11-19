@@ -84,7 +84,7 @@ function h_coord_anular(PDO $db, array $p, array $in): array
 function h_coord_en_nombre_de(PDO $db, array $p, array $in): array
 {
     if (empty($in['funcionario_id'])) throw new ApiError('Elige a la persona.', 422);
-    $r = reg_crear($db, $in, ['ip' => ip_cliente(), 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'cfg' => cfg(), 'creada_por' => yo()]);
+    $r = reg_crear($db, $in, ['ip' => ip_cliente(), 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'cfg' => cfg(), 'creada_por' => yo(), 'por_coordinacion' => true]);
     return ['ok' => true] + $r;
 }
 
@@ -326,6 +326,73 @@ function h_coord_nomina_importar(PDO $db, array $p, array $in): array
         auditar($db, 'nomina_importar', null, "creados={$res['creados']} actualizados={$res['actualizados']} errores=" . count($res['errores']), ip_cliente());
     });
     return $res;
+}
+
+// ───────────────────────── Tipos de ausentismo ─────────────────────────
+
+function h_coord_tipos_listar(PDO $db, array $p, array $in): array
+{
+    return ['tipos' => tipos_listar($db, false)];
+}
+
+/**
+ * Crea o edita un tipo (SPEC-v2 §3.5). La sigla es única e inmutable. Los precargados (FL, ADM, CT, LIC) solo
+ * cambian nombre, etiqueta, orden y activo. Nada se borra: se desactiva. Cambiar un tipo no recalcula solicitudes.
+ */
+function h_coord_tipo_guardar(PDO $db, array $p, array $in): array
+{
+    $id = isset($p[1]) && (int)$p[1] > 0 ? (int)$p[1] : null;
+    $nombre = limpiar($in['nombre'] ?? '', 60);
+    $etiqueta = limpiar($in['etiqueta_publica'] ?? '', 30);
+    if (mb_strlen($nombre) < 2) throw new ApiError('Falta el nombre del tipo.', 422);
+    if ($etiqueta === '') throw new ApiError('Falta la etiqueta que verán los demás en el calendario.', 422);
+    $b = fn($k, $def) => array_key_exists($k, $in) ? (int)(bool)$in[$k] : $def;
+    $activo = $b('activo', 1);
+    $orden = (int)($in['orden'] ?? 50);
+    return tx($db, function () use ($db, $id, $in, $nombre, $etiqueta, $b, $activo, $orden) {
+        if ($id !== null) {
+            $st = $db->prepare('SELECT * FROM tipos_ausentismo WHERE id=?');
+            $st->execute([$id]);
+            $t = $st->fetch();
+            if (!$t) throw new ApiError('Ese tipo no existe.', 404);
+            if ((int)$t['precargado']) {
+                $db->prepare('UPDATE tipos_ausentismo SET nombre=?, etiqueta_publica=?, activo=?, orden=? WHERE id=?')->execute([$nombre, $etiqueta, $activo, $orden, $id]);
+                auditar($db, 'tipo_guardar', null, "{$t['sigla']} (precargado): nombre, etiqueta, activo=$activo", ip_cliente(), yo_o_null());
+                return ['id' => $id];
+            }
+        }
+        $regla = $in['regla_cupo'] ?? 'normal';
+        $saldo = $in['saldo'] ?? null;
+        $loPide = $in['lo_pide'] ?? 'funcionario';
+        $rango = $in['rango'] ?? 'rango';
+        if (!es_en($regla, ['normal', 'fl'])) throw new ApiError('Regla de cupo inválida.', 422);
+        if ($saldo !== null && $saldo !== '' && !es_en($saldo, ['FL', 'ADM'])) throw new ApiError('El saldo debe ser FL, ADM o ninguno.', 422);
+        if (!es_en($loPide, ['funcionario', 'coordinacion'])) throw new ApiError('Indica quién lo pide.', 422);
+        if (!es_en($rango, ['un_dia', 'rango'])) throw new ApiError('Indica si es de un día o de un rango de fechas.', 422);
+        $vals = [$nombre, $b('consume_cupo', 1), $regla, $saldo ?: null, $b('medio_dia', 0), $loPide, $b('exige_reemplazo', 1), $rango, $etiqueta, $activo, $orden];
+        if ($id === null) {
+            $sigla = strtoupper(trim((string)($in['sigla'] ?? '')));
+            if (!preg_match('/^[A-Z0-9]{2,6}$/', $sigla)) throw new ApiError('La sigla debe tener de 2 a 6 letras o números, sin espacios.', 422);
+            $st = $db->prepare('SELECT 1 FROM tipos_ausentismo WHERE sigla=?');
+            $st->execute([$sigla]);
+            if ($st->fetchColumn()) throw new ApiError("Ya existe un tipo con la sigla $sigla.", 409);
+            $db->prepare('INSERT INTO tipos_ausentismo (nombre,consume_cupo,regla_cupo,saldo,medio_dia,lo_pide,exige_reemplazo,rango,etiqueta_publica,activo,orden,sigla)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')->execute([...$vals, $sigla]);
+            $id = (int)$db->lastInsertId();
+            auditar($db, 'tipo_crear', null, "$sigla: $nombre", ip_cliente(), yo_o_null());
+        } else {
+            $db->prepare('UPDATE tipos_ausentismo SET nombre=?,consume_cupo=?,regla_cupo=?,saldo=?,medio_dia=?,lo_pide=?,exige_reemplazo=?,rango=?,etiqueta_publica=?,activo=?,orden=? WHERE id=?')
+               ->execute([...$vals, $id]);
+            auditar($db, 'tipo_guardar', null, "#$id: $nombre", ip_cliente(), yo_o_null());
+        }
+        return ['id' => $id];
+    });
+}
+
+/** Persona con sesión, o null si se llama fuera de una petición (pruebas, consola). */
+function yo_o_null(): ?int
+{
+    return function_exists('sesion_actual') && isset($_COOKIE['aus_s']) ? (sesion_actual()['funcionario_id'] ?? null) : null;
 }
 
 // ───────────────────────── Equipos y feriados ─────────────────────────

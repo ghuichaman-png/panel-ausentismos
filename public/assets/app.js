@@ -69,6 +69,8 @@
 
   const jornada = () => (SES ? SES.persona.jornada : null);   // siempre la persona de la sesión
   const unidades = () => CFG.equipos.filter((e) => e.tiene_turnantes);
+  // Tipo elegido, con su configuración (SPEC-v2 §3.5): rango, medio_dia, es_cambio_turno, exige_reemplazo…
+  const T = () => (F.tipo && CFG.tipos.find((x) => x.sigla === F.tipo)) || {};
 
   function opcionesSelect(sel, items, vacio) {
     vaciar(sel);
@@ -99,11 +101,11 @@
     const box = vaciar($('f-tipos'));
     mostrarEl($('f-tipo-box'), !!j);
     if (!j) { F.tipo = null; return; }
-    const tipos = j === 'turnante' ? ['FL', 'ADM', 'CT'] : ['FL', 'ADM'];
+    const tipos = CFG.tipos.filter((x) => x.lo_pide === 'funcionario' && (j === 'turnante' || !x.es_cambio_turno)).map((x) => x.sigla);
     if (!tipos.includes(F.tipo)) F.tipo = null;
     tipos.forEach((t) => box.append(h('label', { class: 'opcion' },
       h('input', { type: 'radio', name: 'tipo', value: t, checked: F.tipo === t, onchange: () => { F.tipo = t; renderFracs(); actualizar(); } }),
-      h('span', null, AUS.tipoLargo[t] + (t === 'FL' ? ' (feriado)' : '')))));
+      h('span', null, CFG.tipos.find((x) => x.sigla === t).nombre))));
     renderFracs();
   }
 
@@ -121,14 +123,15 @@
   function actualizar() {
     const j = jornada();
     const t = F.tipo;
+    const tp = T();
     mostrarEl($('f-fechas'), !!(j && t));
-    mostrarEl($('w-hasta'), t === 'FL');
-    mostrarEl($('f-frac-box'), t === 'ADM');
+    mostrarEl($('w-hasta'), tp.rango === 'rango');
+    mostrarEl($('f-frac-box'), !!tp.medio_dia);
     mostrarEl($('w-comentario'), !!(j && t));
     mostrarEl($('f-turn'), j === 'turnante' && !!t); // FL, ADM y CT necesitan turno y unidad por fecha
-    mostrarEl($('f-defaults'), j === 'turnante' && t === 'FL');
-    mostrarEl($('f-ct'), j === 'turnante' && t === 'CT');
-    $('l-desde').textContent = t === 'FL' ? 'Desde' : t === 'CT' ? 'Fecha del turno que cedes' : 'Fecha';
+    mostrarEl($('f-defaults'), j === 'turnante' && tp.rango === 'rango' && !tp.es_cambio_turno);
+    mostrarEl($('f-ct'), j === 'turnante' && !!tp.es_cambio_turno);
+    $('l-desde').textContent = tp.rango === 'rango' ? 'Desde' : tp.es_cambio_turno ? 'Fecha del turno que cedes' : 'Fecha';
     if (j === 'turnante' && t) sincronizarDias(); else { F.dias = []; renderDias(); }
     simular();
   }
@@ -139,7 +142,7 @@
     const d = $('f-desde').value;
     let fechas = [];
     if (d) {
-      if (t === 'FL') {
+      if (T().rango === 'rango' && !T().es_cambio_turno) {
         const hasta = $('f-hasta').value || d;
         let f = d;
         while (f <= hasta && fechas.length < 62) { fechas.push(f); f = AUS.addDias(f, 1); }
@@ -160,13 +163,13 @@
         h('option', { value: '' }, 'Unidad…'), unidades().map((u) => h('option', { value: u.id }, u.nombre)));
       sUni.value = d.unidad_id || '';
       const fila = h('div', { class: 'dia-turno' }, h('span', { class: 'fecha' }, AUS.fmtLargo(d.fecha)), sTurno, sUni);
-      if (F.tipo !== 'CT') {
+      if (!T().es_cambio_turno) {
         const r = h('input', { class: 'input reemp', type: 'text', maxlength: '120', placeholder: 'Quién te cubre', 'aria-label': 'Quién cubre el ' + AUS.fmt(d.fecha), value: d.reemplazo || '',
           oninput: (e) => { d.reemplazo = e.target.value; } });
         AUS.datalistNomina(r);
         fila.append(r);
       }
-      if (F.tipo === 'FL' && F.dias.length > 1) {
+      if (T().rango === 'rango' && F.dias.length > 1) {
         fila.append(h('button', { type: 'button', class: 'btn btn-chico', 'aria-label': 'Quitar el ' + AUS.fmt(d.fecha), onclick: () => { F.dias = F.dias.filter((x) => x !== d); renderDias(); simular(); } }, '×'));
       }
       box.append(fila);
@@ -204,7 +207,7 @@
       if (mi !== F.seq) return;
       box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
-      if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.'));
+      if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
       else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' (cupo diario del equipo: ' + AUS.num(s.cupo) + ').'));
       if (s.dias_llenos.length) {
         F.llenos = s.dias_llenos;
@@ -223,12 +226,12 @@
     const b = { tipo: F.tipo, comentario: $('f-comentario').value.trim() };   // la persona la pone el servidor desde la sesión
     if (j === 'diurno') {
       b.fecha_inicio = $('f-desde').value;
-      b.fecha_fin = F.tipo === 'FL' ? ($('f-hasta').value || b.fecha_inicio) : b.fecha_inicio;
-      b.fraccion = F.tipo === 'ADM' ? F.fraccion : 'completo';
+      b.fecha_fin = T().rango === 'rango' ? ($('f-hasta').value || b.fecha_inicio) : b.fecha_inicio;
+      b.fraccion = T().medio_dia ? F.fraccion : 'completo';
     } else {
       b.dias = F.dias.map((d) => ({ fecha: d.fecha, turno: d.turno, unidad_id: d.unidad_id, reemplazo: d.reemplazo || '' }));
-      if (F.tipo === 'ADM') b.fraccion = F.fraccion;
-      if (F.tipo === 'CT') Object.assign(b, { cambio_con: $('fc-con').value.trim(), devolucion_fecha: $('fc-fecha').value || null, devolucion_turno: $('fc-turno').value || null });
+      if (T().medio_dia) b.fraccion = F.fraccion;
+      if (T().es_cambio_turno) Object.assign(b, { cambio_con: $('fc-con').value.trim(), devolucion_fecha: $('fc-fecha').value || null, devolucion_turno: $('fc-turno').value || null });
     }
     b.acepta_sobre_cupo = $('fs-acepta').checked;
     b.justificacion = $('fs-just').value.trim();
@@ -311,7 +314,7 @@
   function tarjetaSol(s, recargar) {
     const fechas = s.fecha_inicio === s.fecha_fin ? AUS.fmt(s.fecha_inicio) : AUS.fmt(s.fecha_inicio) + ' al ' + AUS.fmt(s.fecha_fin);
     const card = h('article', { class: 'sol' },
-      h('div', { class: 'sol-cab' }, h('span', { class: 'cod' }, s.codigo), AUS.chip(AUS.tipoTxt(s.tipo, s.fraccion), 'chip-neutro'), AUS.estadoChip(s.estado), s.sobre_cupo ? AUS.chip('Sobre cupo', 'chip-precaucion') : null),
+      h('div', { class: 'sol-cab' }, h('span', { class: 'cod' }, s.codigo), AUS.chip(AUS.tipoTxt(s.tipo, s.fraccion, s.etiqueta), 'chip-neutro'), AUS.estadoChip(s.estado), s.sobre_cupo ? AUS.chip('Sobre cupo', 'chip-precaucion') : null),
       h('div', null, h('strong', null, s.nombre), ' · ' + fechas + (s.turno ? ' · turno ' + s.turno : '')));
     if (s.estado === 'rechazada') card.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Motivo del rechazo: '), s.motivo || 'No se indicó motivo.'));
     if (s.estado === 'autorizada') card.append(h('div', { class: 'aviso aviso-normal' }, h('b', null, 'Autorizada.')));
