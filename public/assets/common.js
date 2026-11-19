@@ -209,7 +209,7 @@
           const oc = AUS.ocupacion(lista, eq.id);
           const e = AUS.estadoCupo(oc.total, eq.cupo_diurno);
           const amLleno = AUS.estadoCupo(oc.am, eq.cupo_diurno) === 'lleno', pmLleno = AUS.estadoCupo(oc.pm, eq.cupo_diurno) === 'lleno';
-          clase = e;
+          clase = (e === 'lleno' && !(amLleno && pmLleno)) ? 'parcial' : e;   // un solo bloque lleno: aún hay cupo en el otro
           est = e === 'libre' ? 'Libre' : (amLleno && pmLleno) ? 'Lleno' : amLleno ? 'Mañana llena' : pmLleno ? 'Tarde llena' : AUS.textoBloques(oc, eq.cupo_diurno);
           if (oc.pend > EPS) { clase += ' pend'; sub = 'pendiente'; }
           if (oc.ceros) sub = (sub ? sub + ' · ' : '') + '+' + oc.ceros + ' sin cupo';
