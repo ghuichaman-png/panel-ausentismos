@@ -11,20 +11,48 @@
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-<header class="barra">
+<header class="barra oculto" id="barra">
   <div class="barra-in">
     <img id="logo" class="oculto" alt="">
     <h1 id="titulo">Ausentismos · Kinesiología HPM</h1>
     <a class="btn btn-primario btn-grande" href="#/pedir">Pedir días</a>
   </div>
 </header>
-<nav class="nav" aria-label="Secciones">
+<nav class="nav oculto" aria-label="Secciones" id="nav">
   <a href="#/" id="nav-cal">Calendario</a>
   <a href="#/mis" id="nav-mis">Mis solicitudes</a>
+  <a href="#/perfil" id="nav-perfil">Mi perfil</a>
+  <a href="coordinacion/" id="nav-coord" class="oculto">Coordinación</a>
 </nav>
 
 <main id="main" tabindex="-1">
   <noscript><p class="aviso aviso-critico">Esta página necesita JavaScript.</p></noscript>
+
+  <!-- Ingreso / activación -->
+  <section id="v-ingreso" class="vista oculto login" aria-labelledby="h-ingreso">
+    <h1 id="h-ingreso">Ausentismos · Kinesiología HPM</h1>
+    <fieldset><legend class="solo-lector">Cómo entrar</legend>
+      <div class="opciones">
+        <label class="opcion"><input type="radio" name="i-modo" value="ingresar" checked><span>Ingresar</span></label>
+        <label class="opcion"><input type="radio" name="i-modo" value="activar"><span>Activar con código</span></label>
+      </div>
+    </fieldset>
+    <form id="i-form" class="tarjeta" novalidate>
+      <label class="campo"><span>RUT</span><input id="i-rut" type="text" autocomplete="username" placeholder="12.345.678-5" required></label>
+      <label class="campo oculto" id="i-w-codigo"><span>Código de activación</span>
+        <input id="i-codigo" type="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH" maxlength="9"></label>
+      <label class="campo"><span id="i-l-pin">PIN (6 números)</span>
+        <input id="i-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password" required></label>
+      <label class="campo oculto" id="i-w-pin2"><span>Repite el PIN</span>
+        <input id="i-pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password"></label>
+      <p class="ayuda oculto" id="i-ayuda-activar">Coordinación te entrega el código. Elige un PIN de 6 números que no sea fácil de adivinar (ni 123456 ni parte de tu RUT).</p>
+      <label class="opcion"><input type="checkbox" id="i-compartido"><span>Este es un computador compartido</span></label>
+      <p class="ayuda">En un computador compartido la sesión se cierra sola tras 30 minutos sin uso. En tu celular queda abierta.</p>
+      <p id="i-error" class="msg-error" role="alert"></p>
+      <button type="submit" class="btn btn-primario btn-grande" id="i-enviar">Ingresar</button>
+    </form>
+    <p class="nota">¿Olvidaste tu PIN? Pide un código nuevo a coordinación.</p>
+  </section>
 
   <!-- Calendario -->
   <section id="v-cal" class="vista oculto" aria-label="Calendario">
@@ -47,33 +75,11 @@
   <section id="v-pedir" class="vista oculto" aria-labelledby="h-pedir">
     <h1 id="h-pedir">Pedir días</h1>
     <form id="form" novalidate>
-      <div class="hp" aria-hidden="true"><label>No completar<input type="text" id="f-web" tabindex="-1" autocomplete="off"></label></div>
-
-      <label class="campo"><span>Tu nombre</span>
-        <div><input id="f-nombre" type="text" placeholder="Escribe tu nombre o apellido" required></div>
-        <p class="ayuda">Elige tu nombre de la lista. <button type="button" class="btn btn-chico" id="f-noestoy">No estoy en la lista</button></p>
-      </label>
-
-      <dl class="lectura oculto" id="f-ficha">
+      <dl class="lectura" id="f-ficha">
+        <div><dt>Nombre</dt><dd id="fi-nombre"></dd></div>
         <div><dt>Jornada</dt><dd id="fi-jornada"></dd></div>
         <div><dt>Equipo</dt><dd id="fi-equipo"></dd></div>
       </dl>
-
-      <div id="f-fuera" class="tarjeta oculto">
-        <h3>Tus datos (no apareces en la nómina)</h3>
-        <label class="campo"><span>RUT</span><input id="ff-rut" type="text" inputmode="text" placeholder="12.345.678-5" autocomplete="off"></label>
-        <fieldset><legend>Jornada</legend>
-          <div class="opciones">
-            <label class="opcion"><input type="radio" name="ff-jornada" value="diurno" checked><span>Diurno</span></label>
-            <label class="opcion"><input type="radio" name="ff-jornada" value="turnante"><span>Turnante</span></label>
-          </div></fieldset>
-        <div class="dos-col">
-          <label class="campo"><span>Equipo</span><select id="ff-equipo"></select></label>
-          <label class="campo"><span>Calidad</span>
-            <select id="ff-calidad"><option value="titular">Titular</option><option value="contrata">Contrata</option><option value="honorarios">Honorarios</option></select></label>
-        </div>
-        <p class="ayuda">Coordinación revisará tus datos y podrá vincularte a la nómina.</p>
-      </div>
 
       <fieldset id="f-tipo-box" class="oculto"><legend>¿Qué necesitas?</legend><div class="opciones" id="f-tipos"></div></fieldset>
 
@@ -129,19 +135,35 @@
   <section id="v-ok" class="vista oculto" aria-labelledby="h-ok">
     <h1 id="h-ok">¡Solicitud enviada!</h1>
     <div class="tarjeta" id="ok-caja"></div>
-    <div class="fila"><a class="btn btn-primario" href="#/mis" id="ok-mis">Ver mis solicitudes</a><a class="btn" href="#/">Volver al calendario</a></div>
+    <div class="fila"><a class="btn btn-primario" href="#/mis">Ver mis solicitudes</a><a class="btn" href="#/">Volver al calendario</a></div>
   </section>
 
   <!-- Mis solicitudes -->
   <section id="v-mis" class="vista oculto" aria-labelledby="h-mis">
     <h1 id="h-mis">Mis solicitudes</h1>
-    <form id="m-form" novalidate>
-      <label class="campo"><span>Tu nombre o el código de tu solicitud</span>
-        <div><input id="m-q" type="text" placeholder="Nombre, o AUS-2026-0001"></div></label>
-      <button type="submit" class="btn">Buscar</button>
-    </form>
     <p id="m-error" class="msg-error" role="alert"></p>
     <div id="m-lista" class="vista"></div>
+  </section>
+
+  <!-- Mi perfil -->
+  <section id="v-perfil" class="vista oculto" aria-labelledby="h-perfil">
+    <h1 id="h-perfil">Mi perfil</h1>
+    <dl class="lectura" id="p-ficha"></dl>
+    <form id="p-pin" class="tarjeta" novalidate>
+      <h2>Cambiar PIN</h2>
+      <div class="dos-col">
+        <label class="campo"><span>PIN actual</span><input id="p-actual" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password"></label>
+        <label class="campo"><span>PIN nuevo</span><input id="p-nuevo" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password"></label>
+      </div>
+      <p id="p-error" class="msg-error" role="alert"></p>
+      <button type="submit" class="btn">Cambiar PIN</button>
+    </form>
+    <div class="tarjeta">
+      <h2>Dónde tienes la sesión abierta</h2>
+      <ul class="lista" id="p-sesiones"></ul>
+      <div class="acciones"><button type="button" class="btn btn-chico" id="p-otras">Cerrar las demás sesiones</button></div>
+    </div>
+    <button type="button" class="btn btn-peligro" id="p-salir">Cerrar sesión en este dispositivo</button>
   </section>
 </main>
 <script src="assets/common.js"></script>

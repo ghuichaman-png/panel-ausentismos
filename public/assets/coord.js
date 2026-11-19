@@ -1,4 +1,4 @@
-/* Vista de coordinación. Requiere sesión (clave compartida). */
+/* Vista de coordinación. Requiere sesión de una persona con rol coordinación (se ingresa en la app principal). */
 (function () {
   'use strict';
   const { h, vaciar } = AUS;
@@ -9,22 +9,13 @@
 
   const SECCIONES = [['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['nom', 'Nómina'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['exp', 'Exportar y respaldo']];
 
-  // ───────── Sesión ─────────
-  async function api(ruta, opt) {
-    try { return await AUS.api(ruta, opt); }
-    catch (e) { if (e.status === 401 && AUS.csrf !== null) { AUS.csrf = null; mostrarLogin('Tu sesión expiró. Ingresa de nuevo.'); } throw e; }
-  }
+  // ───────── Sesión (la de la persona; el ingreso está en la app principal) ─────────
+  const api = AUS.api;
+  const irAIngreso = () => { location.href = AUS.base + './'; };
 
-  function mostrarLogin(msg) {
-    mostrarEl($('login'), true); mostrarEl($('app'), false); mostrarEl($('salir'), false); mostrarEl($('rp-wrap'), false);
-    $('login-error').textContent = msg || '';
-    $('login-clave').value = '';
-    $('login-clave').focus();
-  }
-
-  async function entrar() {
-    mostrarEl($('login'), false); mostrarEl($('app'), true); mostrarEl($('salir'), true); mostrarEl($('rp-wrap'), true);
-    $('resuelto-por').value = AUS.leer('aus_resuelto_por', '');
+  async function entrar(sesion) {
+    $('quien').textContent = sesion.persona.nombre;
+    mostrarEl($('app'), true); mostrarEl($('salir'), true); mostrarEl($('quien'), true);
     const cfg = await AUS.api('config');
     AUS.hoy = cfg.hoy;
     document.title = 'Coordinación · ' + cfg.titulo;
@@ -46,13 +37,6 @@
     vaciar(m);
     ({ pend: secSolicitudes, todas: secSolicitudes, cal: secCalendario, res: secResumen, nom: secNomina, eq: secEquipos, fer: secFeriados, exp: secExportar }[k])(m, k)
       .catch((e) => { if (e.status !== 401) m.append(h('p', { class: 'aviso aviso-critico', role: 'alert' }, e.message)); });
-  }
-
-  function resPor() {
-    const v = $('resuelto-por').value.trim();
-    if (!v) { $('resuelto-por').focus(); throw new Error('Escribe arriba «Resuelto por» (iniciales o nombre) antes de resolver.'); }
-    AUS.guardar('aus_resuelto_por', v);
-    return v;
   }
 
   // ───────── Utilidades de UI ─────────
@@ -150,17 +134,16 @@
     const btn = (t, clase, fn) => acc.append(h('button', { type: 'button', class: 'btn btn-chico ' + clase, onclick: fn }, t));
 
     if (s.estado === 'pendiente') {
-      btn('Autorizar', 'btn-primario', () => ejecutar(() => post('resolver', { accion: 'autorizar', resuelto_por: resPor() })));
-      btn('Rechazar', 'btn-peligro', () => pedirMotivo('Rechazar ' + s.codigo, 'Motivo del rechazo (lo verá el funcionario)').then((mot) => mot && ejecutar(() => post('resolver', { accion: 'rechazar', motivo: mot, resuelto_por: resPor() }))));
+      btn('Autorizar', 'btn-primario', () => ejecutar(() => post('resolver', { accion: 'autorizar' })));
+      btn('Rechazar', 'btn-peligro', () => pedirMotivo('Rechazar ' + s.codigo, 'Motivo del rechazo (lo verá el funcionario)').then((mot) => mot && ejecutar(() => post('resolver', { accion: 'rechazar', motivo: mot }))));
     } else if (s.estado === 'autorizada') {
-      btn('Pasar a rechazada', 'btn-peligro', () => pedirMotivo('Rechazar ' + s.codigo, 'Motivo del rechazo').then((mot) => mot && ejecutar(() => post('revertir', { motivo: mot, resuelto_por: resPor() }))));
+      btn('Pasar a rechazada', 'btn-peligro', () => pedirMotivo('Rechazar ' + s.codigo, 'Motivo del rechazo').then((mot) => mot && ejecutar(() => post('revertir', { motivo: mot }))));
     } else if (s.estado === 'rechazada') {
       btn('Pasar a autorizada', 'btn-primario', () => ejecutar(() => revertirAAutorizada(s, post)));
     }
     if (s.estado === 'pendiente' || s.estado === 'autorizada') {
-      btn('Anular', 'btn-peligro', async () => { if (await confirmar('Anular ' + s.codigo, 'La solicitud se anulará y liberará el cupo.', 'Anular', 'btn-peligro')) ejecutar(() => post('anular', { resuelto_por: $('resuelto-por').value.trim() })); });
+      btn('Anular', 'btn-peligro', async () => { if (await confirmar('Anular ' + s.codigo, 'La solicitud se anulará y liberará el cupo.', 'Anular', 'btn-peligro')) ejecutar(() => post('anular', {})); });
     }
-    if (s.fuera_de_nomina) btn('Vincular a la nómina…', '', () => vincular(s).then((ok) => ok && recargar()));
     card.append(acc);
     return card;
   }
@@ -172,8 +155,7 @@
   }
 
   async function revertirAAutorizada(s, post) {
-    const por = resPor();
-    try { await post('revertir', { resuelto_por: por }); }
+    try { await post('revertir', {}); }
     catch (e) {
       if (!(e.data && e.data.codigo === 'sin_cupo')) throw e;
       const ta = h('textarea', { class: 'input', maxlength: '1000' });
@@ -181,23 +163,8 @@
       const just = await dialogo('Ya no hay cupo', h('div', { class: 'vista' }, h('p', { class: 'aviso aviso-precaucion' }, 'Sin cupo en: ' + llenos + '. Para autorizarla debe quedar como sobre cupo con justificación.'), campo('Justificación', ta)),
         [{ texto: 'Cancelar', valor: null }, { texto: 'Autorizar sobre cupo', clase: 'btn-primario', accion: () => { if (!ta.value.trim()) throw new Error('La justificación es obligatoria.'); return ta.value.trim(); } }]);
       if (!just) throw new Error('Cancelado.');
-      await post('revertir', { resuelto_por: por, acepta_sobre_cupo: true, justificacion: just });
+      await post('revertir', { acepta_sobre_cupo: true, justificacion: just });
     }
-  }
-
-  async function vincular(s) {
-    const q = h('input', { class: 'input', type: 'search', placeholder: 'Buscar en la nómina…' });
-    const sel = h('select', { class: 'input', size: '5', 'aria-label': 'Personas de la nómina' });
-    const buscar = AUS.debounce(async () => {
-      const r = await api('coord/nomina', { params: { q: q.value, activo: 1 } });
-      vaciar(sel).append(...r.funcionarios.slice(0, 50).map((x) => h('option', { value: x.id }, x.nombre + ' · ' + x.rut)));
-    }, 200);
-    q.addEventListener('input', buscar);
-    buscar();
-    return dialogo('Vincular ' + s.nombre, h('div', { class: 'vista' }, h('p', { class: 'nota' }, 'Datos de la solicitud: ' + s.rut + ' · ' + s.jornada + ' · ' + s.calidad), campo('Persona existente', q), sel), [
-      { texto: 'Cancelar', valor: false },
-      { texto: 'Vincular a la elegida', accion: async () => { if (!sel.value) throw new Error('Elige a alguien de la lista.'); await api('coord/solicitudes/' + s.id + '/vincular', { cuerpo: { funcionario_id: +sel.value } }); return true; } },
-      { texto: 'Crear en la nómina', clase: 'btn-primario', accion: async () => { await api('coord/solicitudes/' + s.id + '/vincular', { cuerpo: { crear: true } }); return true; } }]);
   }
 
   // ───────── Calendario ─────────
@@ -262,10 +229,13 @@
     const cargar = async () => {
       const r = await api('coord/nomina', { params: { q: q.value } });
       vaciar(lista).append(h('table', { class: 'tabla' },
-        h('thead', null, h('tr', null, ...['Nombre', 'RUT', 'Jornada', 'Equipo', 'Calidad', 'Teléfono', 'Activo', ''].map((t) => h('th', null, t)))),
-        h('tbody', null, r.funcionarios.map((x) => h('tr', null, h('td', null, x.nombre), h('td', null, x.rut), h('td', null, cap(x.jornada)), h('td', null, x.equipo || '—'), h('td', null, cap(x.calidad)),
-          h('td', null, x.telefono || '—'),
-          h('td', null, x.activo ? 'Sí' : 'No'), h('td', null, h('button', { type: 'button', class: 'btn btn-chico', onclick: () => editarFuncionario(x).then((ok) => ok && cargar()) }, 'Editar')))))));
+        h('thead', null, h('tr', null, ...['Nombre', 'RUT', 'Jornada', 'Equipo', 'Calidad', 'Teléfono', 'Cuenta', 'Activo', ''].map((t) => h('th', null, t)))),
+        h('tbody', null, r.funcionarios.map((x) => h('tr', null, h('td', null, x.nombre, x.rol === 'coordinacion' ? [' ', AUS.chip('Coordinación', 'chip-info')] : null),
+          h('td', null, x.rut), h('td', null, cap(x.jornada)), h('td', null, x.equipo || '—'), h('td', null, cap(x.calidad)),
+          h('td', null, x.telefono || '—'), h('td', null, chipCuenta(x.cuenta)),
+          h('td', null, x.activo ? 'Sí' : 'No'), h('td', null, h('div', { class: 'acciones' },
+            h('button', { type: 'button', class: 'btn btn-chico', onclick: () => editarFuncionario(x).then((ok) => ok && cargar()) }, 'Editar'),
+            h('button', { type: 'button', class: 'btn btn-chico', onclick: () => gestionarCuenta(x).then(() => cargar()) }, 'Cuenta…'))))))));
       lista.prepend(h('p', { class: 'nota' }, r.funcionarios.length + ' persona(s)' + (r.funcionarios.length >= 1000 ? ' (límite 1000)' : '') + '.'));
     };
     archivo.onchange = async () => {
@@ -289,6 +259,38 @@
         h('button', { type: 'button', class: 'btn', onclick: () => editarFuncionario(null).then((ok) => ok && cargar()) }, 'Agregar persona')), resultado),
       campo('Buscar', q), lista);
     await cargar();
+  }
+
+  const ESTADO_CUENTA = {
+    activa: ['Activa', 'chip-normal'], codigo_pendiente: ['Código entregado', 'chip-info'], codigo_vencido: ['Código vencido', 'chip-precaucion'],
+    bloqueada: ['Bloqueada', 'chip-critico'], sin_cuenta: ['Sin activar', 'chip-neutro'],
+  };
+  const chipCuenta = (c) => AUS.chip(...(ESTADO_CUENTA[c] || ESTADO_CUENTA.sin_cuenta));
+
+  /** Código de acceso, desbloqueo, cierre de sesiones y rol de una persona. */
+  async function gestionarCuenta(x) {
+    const msg = h('div', { class: 'vista', 'aria-live': 'polite' });
+    const hacer = async (fn) => { vaciar(msg); try { await fn(); } catch (e) { msg.append(h('p', { class: 'msg-error' }, e.message)); } };
+    const bCodigo = h('button', { type: 'button', class: 'btn btn-primario', onclick: () => hacer(async () => {
+      if (x.cuenta === 'activa' && !(await confirmar('Código nuevo para ' + x.nombre, 'El PIN actual dejará de servir y se cerrarán sus sesiones. Úsalo si olvidó su PIN o perdió su celular.', 'Generar código', 'btn-primario'))) return;
+      const r = await api('coord/nomina/' + x.id + '/codigo', { cuerpo: {} });
+      x.cuenta = 'codigo_pendiente';
+      msg.append(h('div', { class: 'aviso aviso-normal' },
+        h('p', null, 'Código para ', h('b', null, x.nombre), ' (vence en ' + r.vence_dias + ' días, se muestra solo esta vez):'),
+        h('p', { class: 'cod-grande' }, r.codigo),
+        h('p', { class: 'nota' }, 'Entrégaselo en persona o por WhatsApp. En la app debe elegir «Activar con código», escribir su RUT y este código, y crear su PIN.')));
+    }) }, x.cuenta === 'activa' ? 'Generar código nuevo (olvidó su PIN)' : 'Generar código de acceso');
+    const bDesb = h('button', { type: 'button', class: 'btn', onclick: () => hacer(async () => { await api('coord/nomina/' + x.id + '/desbloquear', { cuerpo: {} }); msg.append(h('p', { class: 'aviso aviso-normal' }, 'Cuenta desbloqueada.')); }) }, 'Desbloquear');
+    const bSes = h('button', { type: 'button', class: 'btn', onclick: () => hacer(async () => { const r = await api('coord/nomina/' + x.id + '/cerrar-sesiones', { cuerpo: {} }); msg.append(h('p', { class: 'aviso aviso-normal' }, AUS.plural(r.cerradas, 'sesión cerrada', 'sesiones cerradas') + '.')); }) }, 'Cerrar todas sus sesiones');
+    const esCoord = x.rol === 'coordinacion';
+    const bRol = h('button', { type: 'button', class: 'btn' + (esCoord ? ' btn-peligro' : ''), onclick: () => hacer(async () => {
+      const r = await api('coord/nomina/' + x.id + '/rol', { cuerpo: { rol: esCoord ? 'funcionario' : 'coordinacion' } });
+      x.rol = r.rol;
+      msg.append(h('p', { class: 'aviso aviso-normal' }, r.rol === 'coordinacion' ? 'Ahora tiene rol de coordinación.' : 'Ya no tiene rol de coordinación.'));
+    }) }, esCoord ? 'Quitar rol de coordinación' : 'Dar rol de coordinación');
+    await dialogo('Cuenta de ' + x.nombre, h('div', { class: 'vista' },
+      h('p', null, 'Estado: ', chipCuenta(x.cuenta)),
+      h('div', { class: 'acciones' }, bCodigo, x.cuenta === 'bloqueada' ? bDesb : null, bSes, bRol), msg), [{ texto: 'Cerrar', valor: true }]);
   }
 
   async function editarFuncionario(x) {
@@ -385,24 +387,18 @@
   }
 
   // ───────── Arranque ─────────
-  $('login-form').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    $('login-error').textContent = '';
-    try {
-      const r = await AUS.api('coord/login', { cuerpo: { clave: $('login-clave').value } });
-      AUS.csrf = r.csrf;
-      await entrar();
-    } catch (e) { $('login-error').textContent = e.message; }
-  });
   $('salir').addEventListener('click', async () => {
-    try { await AUS.api('coord/logout', { cuerpo: {} }); } catch (e) { /* ya cerrada */ }
-    AUS.csrf = null;
-    mostrarLogin('Sesión cerrada.');
+    try { await AUS.api('auth/salir', { cuerpo: {} }); } catch (e) { /* ya cerrada */ }
+    irAIngreso();
   });
+  window.addEventListener('aus:sin-sesion', irAIngreso);   // la sesión venció o la cerraron
   (async function () {
     try {
-      const s = await AUS.api('coord/sesion');
-      if (s.autenticado) { AUS.csrf = s.csrf; await entrar(); } else mostrarLogin('');
-    } catch (e) { mostrarLogin(e.message); }
+      const s = await AUS.api('auth/sesion');
+      if (!s.autenticado) { irAIngreso(); return; }
+      AUS.csrf = s.csrf;
+      if (s.persona.rol !== 'coordinacion') { mostrarEl($('sin-permiso'), true); return; }
+      await entrar(s);
+    } catch (e) { $('sec').append(h('p', { class: 'aviso aviso-critico', role: 'alert' }, e.message)); mostrarEl($('app'), true); }
   })();
 })();

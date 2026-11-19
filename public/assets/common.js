@@ -22,6 +22,8 @@
     if (!resp.ok) {
       const er = new Error((data && data.error) || 'Ocurrió un error. Intenta de nuevo.');
       er.status = resp.status; er.data = data || {};
+      // La sesión terminó (venció, la cerraron o se generó un código nuevo): la app vuelve a la pantalla de ingreso.
+      if (er.data.codigo === 'sin_sesion' && !ruta.startsWith('auth/')) window.dispatchEvent(new CustomEvent('aus:sin-sesion'));
       throw er;
     }
     return data;
