@@ -30,7 +30,7 @@ Base: `SPEC-v2.md`. Cada paso es **un commit** en la rama de trabajo, deja la ap
 | 2.1 | Tablas `credenciales` y `sesiones` (migración 3). Generar código de activación: 8 caracteres sin ambiguos, hash, 7 días, un solo uso. | Código válido, vencido y usado. |
 | 2.2 | `auth/activar` (RUT + código → crear PIN, rechaza PIN triviales) y `auth/ingresar` (RUT + PIN). Bloqueo **por cuenta**: 5 errores → 15 minutos, luego 1 hora, luego manual. Límite por IP alto. | Bloqueo por cuenta; otra cuenta desde la misma IP no se bloquea. |
 | 2.3 | Sesiones: cookie con token opaco y hash en la base; 180 días que se renuevan; "computador compartido" de 30 minutos; `auth/salir`, `auth/sesiones` (listar y revocar), `auth/pin`. | Expiración, renovación, revocación, y código nuevo que invalida el PIN. |
-| 2.4 | **Control de acceso** en el enrutador: toda ruta exige sesión; `coord/*` y `jefatura/*` exigen rol, verificado en el servidor. CSRF en toda escritura. Se elimina la clave compartida. | Sin sesión → 401; funcionario en `coord/*` → 403; sin CSRF → 403. |
+| 2.4 | **Control de acceso** en el enrutador: toda ruta exige sesión; `coord/*` exige el rol coordinación, verificado en el servidor. CSRF en toda escritura. Se elimina la clave compartida. | Sin sesión → 401; funcionario en `coord/*` → 403; sin CSRF → 403. |
 | 2.5 | Las solicitudes usan **la persona de la sesión**. Se eliminan "fuera de nómina", el honeypot y el nombre en el formulario. **La anulación ya no pide RUT**: solo la dueña o coordinación. "Mis solicitudes" muestra solo las propias. `resuelta_por` es el `funcionario_id`. "Registrar en nombre de" (coordinación) queda auditado. Límite de envíos **por cuenta**. | Un funcionario no anula la solicitud de otro; la búsqueda de nómina y el calendario no devuelven RUT, calidad ni teléfono. |
 | 2.6 | Interfaz: pantalla de **ingreso y activación** (RUT, PIN de 6 casillas, "computador compartido") y "Mi perfil" con cambio de PIN y sesiones. Coordinación: generar código, desbloquear y cerrar sesiones. | Prueba manual a 375 px: activar, ingresar, pedir y salir. |
 
@@ -64,7 +64,7 @@ Base: `SPEC-v2.md`. Cada paso es **un commit** en la rama de trabajo, deja la ap
 | 5.2 | Reescribir `app.css` con los tokens de Vital: NavBar de vidrio, botones de 44 px, escala reducida y componentes propios (§8.7). Tema oscuro automático. Sin restos de Gerson 1. | `grep -i gerson` sin resultados; capturas en claro y oscuro a 375 px. |
 | 5.3 | Calendario con **franjas AM/PM**, controles del mes en una fila y `aria-label` por día. | Capturas de los estados libre, parcial y lleno por bloque; prueba con teclado. |
 | 5.4 | "Pedir días" con el resumen en vivo de cupo y **saldo**; "Mi perfil" con MetricCards de saldo. | Prueba manual: pedir un ADM en menos de 30 segundos con la sesión abierta (cronometrado). |
-| 5.5 | Coordinación: bandeja, saldos (ajustes), licencias, horas extra, registro de cambios y "Hoy". Jefatura: tipos, equipos, feriados, roles y respaldo. | Prueba manual de cada sección; los tests de rol ya cubren el acceso. |
+| 5.5 | Coordinación: bandeja, saldos (ajustes), licencias, horas extra, registro de cambios, "Hoy" y configuración (tipos, equipos, feriados, roles y respaldo). | Prueba manual de cada sección; los tests de rol ya cubren el acceso. |
 
 ## Etapa 6 — Carga inicial (paso propio; equivale a la "migración de datos")
 

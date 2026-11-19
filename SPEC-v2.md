@@ -24,7 +24,7 @@ Es una herramienta de **gestión interna**. **No reemplaza** el sistema instituc
 - Formulario "Pedir días" de un solo paso, ya identificado.
 - "Mis solicitudes", "Mis turnos" y "Mi saldo".
 - Vista de coordinación por **rol personal**: resolver, turnos y reemplazos, licencias, nómina, saldos, horas extra y exportación.
-- Vista de jefatura: configuración de equipos, cupos, **tipos de ausentismo**, feriados, roles y respaldos.
+- La misma vista de coordinación incluye la configuración: equipos, cupos, **tipos de ausentismo**, feriados, roles y respaldos.
 
 ### No-objetivos (no construir)
 - Integración con sistemas institucionales.
@@ -60,7 +60,7 @@ Es una herramienta de **gestión interna**. **No reemplaza** el sistema instituc
 
 ## 3. Datos de dominio
 
-### 3.1 Equipos y unidades (19, editables por jefatura)
+### 3.1 Equipos y unidades (19, editables por coordinación)
 
 Son los 17 de `SPEC.MD.md` §3.1 más **Oncología infantil** y **Neurología infantil** (diurnos, cupo 2). Cada equipo tiene: nombre, `tiene_diurnos`, `tiene_turnantes`, `cupo_diurno` (por bloque; admite 0,5), `activo` y `orden`. Las unidades con turnantes son las del calendario de turnos.
 
@@ -69,8 +69,8 @@ Son los 17 de `SPEC.MD.md` §3.1 más **Oncología infantil** y **Neurología in
 Cada funcionario tiene:
 - `nombre` y `rut` (validado y único);
 - `jornada` (`diurno` | `turnante`), `equipo_id` (obligatorio para diurnos) y `calidad` (`titular` | `contrata` | `honorarios`);
-- `telefono`, visible **solo para coordinación y jefatura**;
-- `rol` (`funcionario` | `coordinacion` | `jefatura`) y `activo`.
+- `telefono`, visible **solo para coordinación**;
+- `rol` (`funcionario` | `coordinacion`) y `activo`.
 
 Se carga por CSV (`nombre,rut,jornada,equipo,calidad,telefono`) con upsert por RUT, y se edita uno por uno. **No existen las solicitudes "fuera de nómina"**: si alguien no está en la nómina, coordinación lo agrega.
 
@@ -80,9 +80,9 @@ Se carga por CSV (`nombre,rut,jornada,equipo,calidad,telefono`) con upsert por R
 
 ### 3.4 Feriados
 
-Fecha y nombre, editables por jefatura. Valen para los días hábiles, el cupo, los saldos y las horas extra. No hay listas fijas en el código.
+Fecha y nombre, editables por coordinación. Valen para los días hábiles, el cupo, los saldos y las horas extra. No hay listas fijas en el código.
 
-### 3.5 Tipos de ausentismo (configurables por jefatura)
+### 3.5 Tipos de ausentismo (configurables por coordinación)
 
 Cada tipo tiene:
 
@@ -226,7 +226,7 @@ autorizada ↔ rechazada (coordinación revierte; al autorizar se re-verifican c
 - No se puede pedir con fecha pasada. Coordinación sí puede registrar licencias o solicitudes pasadas "en nombre de".
 - Las pendientes cuya fecha ya pasó se destacan como **"vencidas"**.
 
-### 4.9 Tipos creados por jefatura
+### 4.9 Tipos creados por coordinación
 
 Se comportan según su configuración (§3.5), con las mismas reglas de cupo por bloque, saldo, estados y turnos. Cambiar la configuración de un tipo **no recalcula** solicitudes ya creadas. El consumo queda guardado en `solicitud_dias`.
 
@@ -245,8 +245,9 @@ Se comportan según su configuración (§3.5), con las mismas reglas de cupo por
 - **Protección:** bloqueo **por cuenta** tras 5 PIN errados (15 minutos, luego 1 hora y después hasta que coordinación lo desbloquee). Límite por IP **alto** (p. ej. 300 intentos por hora), solo contra ataques masivos, porque todo el hospital comparte una IP. CSRF en toda escritura. Límite de creación de solicitudes **por cuenta**.
 - **Roles:**
   - **funcionario:** sus datos, el calendario, pedir y anular las propias;
-  - **coordinación:** **todos los equipos**, resolver, turnos, licencias, nómina, saldos, códigos y "en nombre de";
-  - **jefatura:** todo lo anterior más la configuración (equipos, cupos, tipos, feriados, roles y respaldo).
+  - **coordinación:** **todos los equipos**, resolver, turnos, licencias, nómina, saldos, códigos, "en nombre de" y la configuración (equipos, cupos, tipos, feriados, roles y respaldo).
+
+  Hay solo **dos roles**: en este equipo, coordinación y jefatura son las mismas personas (decisión del 19-11-2026).
 
   El rol se verifica **en el servidor** en cada ruta.
 
@@ -280,25 +281,21 @@ Se comportan según su configuración (§3.5), con las mismas reglas de cupo por
 5. **Licencias:** registrar y anular.
 6. **Horas extra:** por persona y mes, con exportación a CSV.
 7. **Saldos:** por persona, ajustes con motivo y movimientos.
-8. **Nómina:** CSV, edición, teléfono, rol (jefatura), **códigos de activación o recuperación**, desbloquear y cerrar sesiones.
+8. **Nómina:** CSV, edición, teléfono, rol (funcionario o coordinación), **códigos de activación o recuperación**, desbloquear y cerrar sesiones.
 9. **Resumen y exportar:** resumen anual por persona y tipo; CSV de solicitudes (separador `;`, UTF-8 con BOM).
 10. **Registro de cambios** (auditoría).
 11. **Hoy:** ausentes de hoy, turnos sin cubrir y pendientes que vencen pronto.
-
-### 6.3 Jefatura (además de lo anterior)
-
-Equipos y cupos, **tipos de ausentismo**, feriados, roles y **respaldo** (`VACUUM INTO`).
+12. **Configuración:** equipos y cupos, **tipos de ausentismo**, feriados y **respaldo** (`VACUUM INTO`).
 
 ---
 
 ## 7. API
 
-`api.php?r=…`, siempre en JSON, con errores con código HTTP y mensaje en español. **Toda ruta exige sesión**, salvo `auth/ingresar`, `auth/activar` y `auth/sesion`. Las rutas `coord/*` exigen el rol coordinación o jefatura, y las `jefatura/*` el rol jefatura. Toda escritura exige CSRF.
+`api.php?r=…`, siempre en JSON, con errores con código HTTP y mensaje en español. **Toda ruta exige sesión**, salvo `auth/ingresar`, `auth/activar` y `auth/sesion`. Las rutas `coord/*` exigen el rol coordinación. Toda escritura exige CSRF.
 
 - **Autenticación:** `POST auth/activar`, `POST auth/ingresar`, `POST auth/salir`, `GET auth/sesion`, `POST auth/pin`, `GET/POST auth/sesiones` (listar y revocar).
 - **Funcionario:** `GET config`, `GET calendario?mes=`, `GET turnos/mios`, `POST solicitudes/simular`, `POST solicitudes`, `GET solicitudes/mias`, `POST solicitudes/{id}/anular`, `GET saldos/mios`, `GET nomina/buscar?q=` (solo nombre y equipo, para elegir el reemplazo).
-- **Coordinación:** solicitudes (listar, resolver, revertir, anular, en-nombre-de), calendario, turnos (CRUD, lote, asignar), licencias, horas-extra (+CSV), saldos (ver y ajustar), nómina (CRUD, importar, código, desbloquear, sesiones), resumen y exportar, auditoría, hoy.
-- **Jefatura:** equipos, tipos, feriados, roles, respaldo.
+- **Coordinación:** solicitudes (listar, resolver, revertir, anular, en-nombre-de), calendario, turnos (CRUD, lote, asignar), licencias, horas-extra (+CSV), saldos (ver y ajustar), nómina (CRUD, importar, código, desbloquear, sesiones, rol), resumen y exportar, auditoría, hoy, equipos, tipos, feriados y respaldo.
 
 Si se cambia alguna ruta, se documenta en el README.
 
@@ -447,7 +444,7 @@ Calendario del mes en tema claro: sin barra, sin sombras, con bordes `hairline` 
      - una sesión revocada no sirve;
      - un código nuevo invalida el PIN anterior;
      - sin sesión, toda ruta protegida devuelve 401;
-     - un funcionario no accede a `coord/*` ni a `jefatura/*` (403);
+     - un funcionario no accede a `coord/*` (403);
      - CSRF obligatorio;
      - un funcionario no puede anular la solicitud de otro.
    - **Privacidad:** `nomina/buscar` y el calendario nunca devuelven RUT, calidad, teléfono ni justificaciones; la simulación no expone datos de otras personas.
@@ -462,10 +459,10 @@ Calendario del mes en tema claro: sin barra, sin sombras, con bordes `hairline` 
 
 ```
 public/                 → web en DreamHost
-  index.html            app (funcionario, coordinación y jefatura según rol)
+  index.html            app (funcionario o coordinación según rol)
   assets/vital/         tokens.css, bundle.css, fonts/, licenses/  (sin modificar)
   assets/app.css        ajustes y componentes propios con tokens de Vital
-  assets/js/            módulos: comun, ingreso, calendario, pedir, mis, turnos, coord, jefatura
+  assets/js/            módulos: comun, ingreso, calendario, pedir, mis, turnos, coord, config
   assets/iconos/        SVG de Lucide utilizados
   api.php, app-dir.php, manifest.webmanifest, .htaccess
 lib/                    PRIVADO: db, migraciones, auth, reglas (cupo, saldos, turnos, horas extra), handlers
@@ -501,12 +498,12 @@ docs/                   análisis, propuesta, evaluación de Vital, plan
 | Medio día | Cupo por bloque AM/PM. |
 | Equipos | 19. |
 | Saldos | FL y ADM, regla fija de 15 y 6, ajustes puntuales, año calendario sin arrastre, **bloquear** si no alcanza, FL de turnante por día hábil. |
-| Tipos | Licencias registradas por coordinación (se ven como "Licencia", no consumen cupo). Jefatura crea tipos y configura cupo, saldo, medio día, quién lo pide, reemplazo y visibilidad. |
+| Tipos | Licencias registradas por coordinación (se ven como "Licencia", no consumen cupo). Coordinación crea tipos y configura cupo, saldo, medio día, quién lo pide, reemplazo y visibilidad. |
 | Turnantes | Se exige turno cargado. |
 | Cambio de turno | Coordinado de antemano por el solicitante; sin aceptación de la contraparte en la app. |
-| Roles | Coordinación ve todos los equipos. |
+| Roles | Dos roles: funcionario y coordinación (en este equipo, coordinación y jefatura son lo mismo). Coordinación ve todos los equipos y también configura. |
 | Vistas sin login | Ninguna. |
-| Teléfono | Se guarda, visible solo para coordinación y jefatura. |
+| Teléfono | Se guarda, visible solo para coordinación. |
 | Visual | Vital, encabezado en vidrio, tema oscuro automático, sin tintes, con los ajustes de 44 px y escala reducida. |
 | Firebase | No se toca. |
 
