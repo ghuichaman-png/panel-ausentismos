@@ -220,7 +220,10 @@ function nomina_validar(PDO $db, array $r): array
         if (!$e) throw new ApiError('El equipo no existe.', 422);
         if ($jornada === 'diurno' && !$e['tiene_diurnos']) throw new ApiError('Ese equipo no tiene personal diurno.', 422);
     }
-    return ['nombre' => $nombre, 'rut' => $rut, 'jornada' => $jornada, 'calidad' => $calidad, 'equipo_id' => $equipo];
+    $v = ['nombre' => $nombre, 'rut' => $rut, 'jornada' => $jornada, 'calidad' => $calidad, 'equipo_id' => $equipo];
+    // Teléfono opcional; si la clave no viene (p. ej. CSV antiguo sin esa columna), no se toca el guardado.
+    if (array_key_exists('telefono', $r)) $v['telefono'] = telefono_normalizar((string)($r['telefono'] ?? ''));
+    return $v;
 }
 
 function h_coord_nomina_listar(PDO $db, array $p, array $in): array
@@ -230,7 +233,7 @@ function h_coord_nomina_listar(PDO $db, array $p, array $in): array
     $q = texto_norm((string)($_GET['q'] ?? ''));
     if ($q !== '') { $w[] = "(f.nombre_norm LIKE ? ESCAPE '\\' OR f.rut LIKE ? ESCAPE '\\')"; $l = '%' . addcslashes($q, '%_\\') . '%'; $par[] = $l; $par[] = $l; }
     if (($_GET['activo'] ?? '') !== '') { $w[] = 'f.activo=?'; $par[] = (int)$_GET['activo']; }
-    $st = $db->prepare('SELECT f.id,f.nombre,f.rut,f.jornada,f.equipo_id,e.nombre AS equipo,f.calidad,f.activo
+    $st = $db->prepare('SELECT f.id,f.nombre,f.rut,f.jornada,f.equipo_id,e.nombre AS equipo,f.calidad,f.telefono,f.rol,f.activo
         FROM funcionarios f LEFT JOIN equipos e ON e.id=f.equipo_id WHERE ' . implode(' AND ', $w) . ' ORDER BY f.nombre LIMIT 1000');
     $st->execute($par);
     $rows = $st->fetchAll();
@@ -249,13 +252,14 @@ function h_coord_nomina_guardar(PDO $db, array $p, array $in): array
         $otro = $st->fetchColumn();
         if ($otro && (int)$otro !== $id) throw new ApiError('Ya existe alguien con ese RUT en la nómina.', 409);
         if ($id === null) {
-            $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,activo) VALUES (?,?,?,?,?,?,?)')
-               ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $activo]);
+            $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,telefono,activo) VALUES (?,?,?,?,?,?,?,?)')
+               ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $v['telefono'] ?? null, $activo]);
             $id = (int)$db->lastInsertId();
             auditar($db, 'nomina_crear', null, "{$v['nombre']}", ip_cliente());
         } else {
             $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,rut=?,jornada=?,equipo_id=?,calidad=?,activo=? WHERE id=?')
                ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $activo, $id]);
+            if (array_key_exists('telefono', $v)) $db->prepare('UPDATE funcionarios SET telefono=? WHERE id=?')->execute([$v['telefono'], $id]);
             auditar($db, 'nomina_editar', null, "{$v['nombre']} activo=$activo", ip_cliente());
         }
         return ['id' => $id];
@@ -275,7 +279,7 @@ function h_coord_nomina_importar(PDO $db, array $p, array $in): array
     $cab = fgetcsv($fh, 0, $delim, '"', '\\') ?: [];
     $cab = array_map(fn($c) => texto_norm((string)$c), $cab);
     foreach (['nombre', 'rut', 'jornada', 'equipo', 'calidad'] as $req) {
-        if (!in_array($req, $cab, true)) throw new ApiError("Falta la columna «$req». Columnas esperadas: nombre,rut,jornada,equipo,calidad.", 422);
+        if (!in_array($req, $cab, true)) throw new ApiError("Falta la columna «{$req}». Columnas esperadas: nombre,rut,jornada,equipo,calidad.", 422);
     }
     $eqMap = [];
     foreach ($db->query('SELECT id,nombre FROM equipos') as $e) $eqMap[texto_norm($e['nombre'])] = (int)$e['id'];
@@ -298,18 +302,21 @@ function h_coord_nomina_importar(PDO $db, array $p, array $in): array
                 }
                 $cal = texto_norm($row['calidad']);
                 if ($cal === 'honorario') $cal = 'honorarios';
-                $v = nomina_validar($db, ['nombre' => $row['nombre'], 'rut' => $row['rut'], 'jornada' => texto_norm($row['jornada']),
-                                          'calidad' => $cal, 'equipo_id' => $equipoId]);
+                $datos = ['nombre' => $row['nombre'], 'rut' => $row['rut'], 'jornada' => texto_norm($row['jornada']),
+                          'calidad' => $cal, 'equipo_id' => $equipoId];
+                if (array_key_exists('telefono', $row)) $datos['telefono'] = $row['telefono']; // columna opcional
+                $v = nomina_validar($db, $datos);
                 $st = $db->prepare('SELECT id FROM funcionarios WHERE rut=?');
                 $st->execute([$v['rut']]);
                 $existe = $st->fetchColumn();
                 if ($existe) {
                     $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,jornada=?,equipo_id=?,calidad=?,activo=1 WHERE id=?')
                        ->execute([$v['nombre'], texto_norm($v['nombre']), $v['jornada'], $v['equipo_id'], $v['calidad'], $existe]);
+                    if (array_key_exists('telefono', $v)) $db->prepare('UPDATE funcionarios SET telefono=? WHERE id=?')->execute([$v['telefono'], $existe]);
                     $res['actualizados']++;
                 } else {
-                    $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,activo) VALUES (?,?,?,?,?,?,1)')
-                       ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad']]);
+                    $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,telefono,activo) VALUES (?,?,?,?,?,?,?,1)')
+                       ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $v['telefono'] ?? null]);
                     $res['creados']++;
                 }
             } catch (ApiError $e) {
@@ -376,7 +383,7 @@ function h_coord_feriados_guardar(PDO $db, array $p, array $in): array
             if ($l === '') continue;
             if (preg_match('/^(\d{4})-(\d{2})-(\d{2})\s*[;,\-\s]?\s*(.*)$/u', $l, $m)) $f = "$m[1]-$m[2]-$m[3]";
             elseif (preg_match('/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\s*[;,\-\s]?\s*(.*)$/u', $l, $m)) $f = sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
-            else throw new ApiError("No entendí la línea: «$l». Usa «aaaa-mm-dd Nombre» o «dd-mm-aaaa Nombre».", 422);
+            else throw new ApiError("No entendí la línea: «{$l}». Usa «aaaa-mm-dd Nombre» o «dd-mm-aaaa Nombre».", 422);
             if (!fecha_ok($f)) throw new ApiError("Fecha inválida: $l", 422);
             $items[] = [$f, limpiar($m[4], 80) ?: 'Feriado'];
         }

@@ -262,8 +262,9 @@
     const cargar = async () => {
       const r = await api('coord/nomina', { params: { q: q.value } });
       vaciar(lista).append(h('table', { class: 'tabla' },
-        h('thead', null, h('tr', null, ...['Nombre', 'RUT', 'Jornada', 'Equipo', 'Calidad', 'Activo', ''].map((t) => h('th', null, t)))),
+        h('thead', null, h('tr', null, ...['Nombre', 'RUT', 'Jornada', 'Equipo', 'Calidad', 'Teléfono', 'Activo', ''].map((t) => h('th', null, t)))),
         h('tbody', null, r.funcionarios.map((x) => h('tr', null, h('td', null, x.nombre), h('td', null, x.rut), h('td', null, cap(x.jornada)), h('td', null, x.equipo || '—'), h('td', null, cap(x.calidad)),
+          h('td', null, x.telefono || '—'),
           h('td', null, x.activo ? 'Sí' : 'No'), h('td', null, h('button', { type: 'button', class: 'btn btn-chico', onclick: () => editarFuncionario(x).then((ok) => ok && cargar()) }, 'Editar')))))));
       lista.prepend(h('p', { class: 'nota' }, r.funcionarios.length + ' persona(s)' + (r.funcionarios.length >= 1000 ? ' (límite 1000)' : '') + '.'));
     };
@@ -283,7 +284,7 @@
     };
     q.oninput = AUS.debounce(cargar, 250);
     m.append(h('div', { class: 'tarjeta vista' },
-      h('p', { class: 'nota' }, 'CSV con columnas: nombre,rut,jornada,equipo,calidad (separador coma o punto y coma). Si el RUT ya existe se actualiza.'),
+      h('p', { class: 'nota' }, 'CSV con columnas: nombre,rut,jornada,equipo,calidad y, opcional, telefono (separador coma o punto y coma). Si el RUT ya existe se actualiza.'),
       h('div', { class: 'acciones' }, h('label', { class: 'btn btn-primario', for: 'csv-file' }, 'Importar CSV'), archivo,
         h('button', { type: 'button', class: 'btn', onclick: () => editarFuncionario(null).then((ok) => ok && cargar()) }, 'Agregar persona')), resultado),
       campo('Buscar', q), lista);
@@ -296,12 +297,14 @@
     const jornada = h('select', { class: 'input' }, h('option', { value: 'diurno' }, 'Diurno'), h('option', { value: 'turnante' }, 'Turnante'));
     const eq = selectEq(equiposActivos(), '(sin equipo)', x ? x.equipo_id : '');
     const cal = h('select', { class: 'input' }, ['titular', 'contrata', 'honorarios'].map((c) => h('option', { value: c }, cap(c))));
+    const tel = h('input', { class: 'input', type: 'tel', inputmode: 'tel', autocomplete: 'off', placeholder: '9 1234 5678', value: x && x.telefono ? x.telefono : '' });
     const [lAct, act] = check('Activo', x ? x.activo : true);
     if (x) { jornada.value = x.jornada; cal.value = x.calidad; }
-    return dialogo(x ? 'Editar persona' : 'Agregar persona', h('div', null, campo('Nombre completo', nombre), campo('RUT', rut), campo('Jornada', jornada), campo('Equipo', eq, 'Obligatorio para diurnos; opcional para turnantes.'), campo('Calidad', cal), lAct), [
+    return dialogo(x ? 'Editar persona' : 'Agregar persona', h('div', null, campo('Nombre completo', nombre), campo('RUT', rut), campo('Jornada', jornada), campo('Equipo', eq, 'Obligatorio para diurnos; opcional para turnantes.'), campo('Calidad', cal),
+      campo('Teléfono (opcional)', tel, 'Solo lo ve coordinación, para coordinar reemplazos.'), lAct), [
       { texto: 'Cancelar', valor: false },
       { texto: 'Guardar', clase: 'btn-primario', accion: async () => {
-        await api('coord/nomina' + (x ? '/' + x.id : ''), { cuerpo: { nombre: nombre.value, rut: rut.value, jornada: jornada.value, equipo_id: +eq.value || null, calidad: cal.value, activo: act.checked } });
+        await api('coord/nomina' + (x ? '/' + x.id : ''), { cuerpo: { nombre: nombre.value, rut: rut.value, jornada: jornada.value, equipo_id: +eq.value || null, calidad: cal.value, telefono: tel.value, activo: act.checked } });
         return true;
       } }]);
   }

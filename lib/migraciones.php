@@ -15,7 +15,15 @@ function migraciones(): array
 {
     return [
         1 => 'db_esquema_v1',
+        2 => 'mig_002_telefono_rol',
     ];
+}
+
+/** Nómina: teléfono (solo lo ve coordinación) y rol por persona (SPEC-v2 §3.2). */
+function mig_002_telefono_rol(PDO $db): void
+{
+    $db->exec('ALTER TABLE funcionarios ADD COLUMN telefono TEXT');
+    $db->exec("ALTER TABLE funcionarios ADD COLUMN rol TEXT NOT NULL DEFAULT 'funcionario' CHECK (rol IN ('funcionario','coordinacion'))");
 }
 
 function db_version(PDO $db): int

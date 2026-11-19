@@ -45,6 +45,23 @@ function rut_normalizar(string $rut): ?string
     return rut_dv($cuerpo) === $dv ? $cuerpo . '-' . $dv : null;
 }
 
+/**
+ * Normaliza un teléfono chileno a +56XXXXXXXXX. Vacío = null. Lanza ApiError si no es un teléfono.
+ * Acepta celulares (9 dígitos empezando en 9), fijos con código de área (9 dígitos) y números con 56 / +56.
+ */
+function telefono_normalizar(string $t): ?string
+{
+    $t = trim($t);
+    if ($t === '') return null;
+    $s = (string)preg_replace('/[\s\-().]/', '', $t);
+    if (!preg_match('/^\+?\d+$/', $s)) throw new ApiError("«{$t}» no parece un teléfono. Usa solo números, p. ej. 9 1234 5678.", 422);
+    $d = ltrim($s, '+');
+    if (strlen($d) === 9) return '+56' . $d;
+    if (strlen($d) === 11 && str_starts_with($d, '56')) return '+' . $d;
+    if (str_starts_with($s, '+') && strlen($d) >= 8 && strlen($d) <= 15) return '+' . $d; // número extranjero
+    throw new ApiError("«{$t}» no parece un teléfono. Usa 9 dígitos, p. ej. 9 1234 5678.", 422);
+}
+
 function texto_norm(string $s): string
 {
     $s = mb_strtolower(trim($s), 'UTF-8');
