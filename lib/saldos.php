@@ -34,13 +34,14 @@ function saldos_asegurar_asignacion(PDO $db, int $anio, ?int $funcionarioId = nu
  * Tipos de rango (FL): días hábiles entre la primera y la última fecha (también para turnantes, §12.1).
  * Tipos de un día (ADM): 1 por día o turno completo, 0,5 por medio día o media jornada (§12.2).
  */
-function saldo_requerido(array $tipo, array $dias, array $feriados): array
+function saldo_requerido(array $tipo, array $dias, array $feriados, ?array $rango = null): array
 {
     if (empty($tipo['saldo']) || !$dias) return [];
     $out = [];
     if ($tipo['rango'] === 'rango') {
         $fechas = array_column($dias, 'fecha');
-        foreach (rango_fechas(min($fechas), max($fechas)) as $f) {
+        [$desde, $hasta] = $rango ?? [min($fechas), max($fechas)];   // $rango: el pedido (turnantes), si no, el de los días
+        foreach (rango_fechas($desde, $hasta) as $f) {
             if (dia_semana($f) >= 6 || isset($feriados[$f])) continue;
             $out[substr($f, 0, 4)] = ($out[substr($f, 0, 4)] ?? 0.0) + 1.0;
         }

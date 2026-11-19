@@ -42,6 +42,12 @@ function mk(PDO $db, string $nombre, string $jornada, ?string $equipo, string $c
     return (int)$db->lastInsertId();
 }
 
+/** Carga un turno en el calendario de turnos (para tests de turnantes). */
+function turno(PDO $db, string $fecha, string $tipo, string $unidad, int $titular): int
+{
+    return h_coord_turno_guardar($db, [], ['fecha' => $fecha, 'tipo' => $tipo, 'unidad_id' => eid($db, $unidad), 'titular_id' => $titular])['id'];
+}
+
 function rutDe(PDO $db, int $fid): string { return (string)$db->query("SELECT rut FROM funcionarios WHERE id=$fid")->fetchColumn(); }
 function eid(PDO $db, string $n): int { return (int)$db->query("SELECT id FROM equipos WHERE nombre=" . $db->quote($n))->fetchColumn(); }
 function crear(PDO $db, array $in): array { return reg_crear($db, $in, ['ip' => '1.2.3.4', 'ua' => 'test', 'cfg' => cfg_defaults()]); }

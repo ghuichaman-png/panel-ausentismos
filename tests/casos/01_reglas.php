@@ -79,20 +79,22 @@ prueba('Rango que cruza fin de semana y feriado: se omiten y no se registran', f
     lanza(fn() => crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-08']), 422, 'hábiles');
 });
 
-prueba('Turnantes: FL, ADM y CT nunca consumen cupo; reemplazo obligatorio', function () {
+prueba('Turnantes: FL, ADM y CT nunca consumen cupo; reemplazo obligatorio (sobre turnos cargados, SPEC-v2 §4.3)', function () {
     $db = nuevaDb();
     $t = mk($db, 'Tati Turno', 'turnante', null);
-    $u = eid($db, 'H7');
-    $dia = fn($f, $reemp = 'Pedro Reemplazo') => ['fecha' => $f, 'turno' => 'largo', 'unidad_id' => $u, 'reemplazo' => $reemp];
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'dias' => [$dia('2026-12-10'), $dia('2026-12-11')]]);
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'primera_mitad', 'dias' => [$dia('2026-12-20')]]);
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'CT', 'cambio_con' => 'Luis Colega', 'dias' => [$dia('2026-12-22', '')],
-                'devolucion_fecha' => '2026-12-29', 'devolucion_turno' => 'noche']);
+    $p = mk($db, 'Pedro Reemplazo', 'turnante', null); $l = mk($db, 'Luis Colega', 'turnante', null);
+    $t10 = turno($db, '2026-12-10', 'largo', 'H7', $t); $t11 = turno($db, '2026-12-11', 'largo', 'H7', $t);
+    $t20 = turno($db, '2026-12-20', 'largo', 'H7', $t); $t22 = turno($db, '2026-12-22', 'largo', 'H7', $t);
+    $t15 = turno($db, '2026-12-15', 'largo', 'H7', $t); $t16 = turno($db, '2026-12-16', 'largo', 'H7', $t);
+    $dev = turno($db, '2026-12-29', 'noche', 'H7', $l);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-10', 'fecha_fin' => '2026-12-11', 'reemplazos' => [$t10 => $p, $t11 => $p]]);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'primera_mitad', 'turno_id' => $t20, 'reemplazo_id' => $p]);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'CT', 'turno_id' => $t22, 'cambio_con_id' => $l, 'devolucion_turno_id' => $dev]);
     $suma = (float)$db->query('SELECT COALESCE(SUM(consumo),0) FROM solicitud_dias')->fetchColumn();
     chequear($suma === 0.0, 'consumo total de turnantes = 0');
     chequear(ocup($db, 'H7', '2026-12-10') === 0.0, 'no ocupa cupo del equipo');
-    lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'dias' => [$dia('2026-12-15', '')]]), 422, 'cubre');
-    lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'CT', 'dias' => [$dia('2026-12-16')]]), 422, 'con quién');
+    lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-15', 'fecha_fin' => '2026-12-15']), 422, 'cubre');
+    lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'CT', 'turno_id' => $t16]), 422, 'con quién');
     // un diurno no puede pedir CT
     $d = mk($db, 'Dani Diurno', 'diurno', 'H7');
     lanza(fn() => crear($db, ['funcionario_id' => $d, 'tipo' => 'CT', 'fecha_inicio' => '2026-12-16']), 422, 'turnantes');
@@ -149,12 +151,12 @@ prueba('Solicitudes superpuestas de la misma persona se rechazan', function () {
     crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-17', 'fraccion' => 'am']);
     crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-17', 'fraccion' => 'pm']);
     lanza(fn() => crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-17', 'fraccion' => 'am']), 409);
-    // turnante: misma fecha y mismo turno choca; distinto turno no
-    $t = mk($db, 'Tati Turno', 'turnante', null); $u = eid($db, 'H7');
-    $dia = fn($turno) => ['fecha' => '2026-12-12', 'turno' => $turno, 'unidad_id' => $u, 'reemplazo' => 'Pedro'];
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'dias' => [$dia('largo')]]);
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'dias' => [$dia('noche')]]);
-    lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'completo', 'dias' => [$dia('largo')]]), 409);
+    // turnante: el mismo turno choca; otro turno del mismo día, no
+    $t = mk($db, 'Tati Turno', 'turnante', null); $p = mk($db, 'Pedro Reemplazo', 'turnante', null);
+    $l12 = turno($db, '2026-12-12', 'largo', 'H7', $t); $n12 = turno($db, '2026-12-12', 'noche', 'H7', $t);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'turno_id' => $l12, 'reemplazo_id' => $p]);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'turno_id' => $n12, 'reemplazo_id' => $p]);
+    lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'completo', 'turno_id' => $l12, 'reemplazo_id' => $p]), 409);
 });
 
 prueba('Validaciones: fecha pasada, persona obligatoria (ya no hay «fuera de nómina») y código correlativo', function () {

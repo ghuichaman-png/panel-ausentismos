@@ -3,11 +3,6 @@ declare(strict_types=1);
 
 // Calendario de turnos (SPEC-v2 §3.7; plan 4.1).
 
-function turno(PDO $db, string $fecha, string $tipo, string $unidad, int $titular): int
-{
-    return h_coord_turno_guardar($db, [], ['fecha' => $fecha, 'tipo' => $tipo, 'unidad_id' => eid($db, $unidad), 'titular_id' => $titular])['id'];
-}
-
 prueba('Turnos: se crean por unidad, fecha y tipo; no se duplican; el titular es turnante', function () {
     $db = nuevaDb();
     $t = mk($db, 'Tati Turno', 'turnante', null);

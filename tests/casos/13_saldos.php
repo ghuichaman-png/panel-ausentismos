@@ -87,18 +87,18 @@ prueba('FL que cruza de año: cada año descuenta sus propios días hábiles; si
 
 prueba('Turnantes: FL descuenta los días hábiles del rango; ADM media jornada 0,5 (SPEC-v2 §12.1 y §12.2)', function () {
     $db = nuevaDb();
-    $t = mk($db, 'Tati Turno', 'turnante', null); $u = eid($db, 'H7');
-    $dia = fn($f) => ['fecha' => $f, 'turno' => 'largo', 'unidad_id' => $u, 'reemplazo' => 'Pedro'];
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'dias' => [$dia('2026-12-12'), $dia('2026-12-15')]]);
+    $t = mk($db, 'Tati Turno', 'turnante', null); $p = mk($db, 'Pedro Reemplazo', 'turnante', null);
+    $a = turno($db, '2026-12-12', 'largo', 'H7', $t); $b = turno($db, '2026-12-15', 'largo', 'H7', $t); $c = turno($db, '2026-12-20', 'largo', 'H7', $t);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-12', 'fecha_fin' => '2026-12-15', 'reemplazos' => [$a => $p, $b => $p]]);
     chequear(disp($db, $t, 'FL') === 13.0, 'rango sáb 12 a mar 15: hábiles 14 y 15 → 2 días');
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'primera_mitad', 'dias' => [$dia('2026-12-20')]]);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'primera_mitad', 'turno_id' => $c, 'reemplazo_id' => $p]);
     chequear(disp($db, $t, 'ADM') === 5.5, 'ADM media jornada: 0,5');
 });
 
 prueba('Tipos sin saldo (CT, LIC, tipos nuevos sin saldo) no descuentan nada', function () {
     $db = nuevaDb();
-    $t = mk($db, 'Tati Turno', 'turnante', null); $u = eid($db, 'H7');
-    crear($db, ['funcionario_id' => $t, 'tipo' => 'CT', 'cambio_con' => 'Luis', 'dias' => [['fecha' => '2026-12-22', 'turno' => 'largo', 'unidad_id' => $u]]]);
+    $t = mk($db, 'Tati Turno', 'turnante', null); $l = mk($db, 'Luis Colega', 'turnante', null);
+    crear($db, ['funcionario_id' => $t, 'tipo' => 'CT', 'turno_id' => turno($db, '2026-12-22', 'largo', 'H7', $t), 'cambio_con_id' => $l]);
     $e = saldo_estado($db, $t, 2026);
     chequear($e['FL']['disponible'] === 15.0 && $e['ADM']['disponible'] === 6.0, 'saldos intactos');
 });

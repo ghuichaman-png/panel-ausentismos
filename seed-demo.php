@@ -46,6 +46,15 @@ $funcs = $db->query('SELECT * FROM funcionarios')->fetchAll();
 $hoy = Reloj::hoy();
 $fin = (new DateTimeImmutable($hoy))->modify('last day of next month')->format('Y-m-d');
 $span = (int)(new DateTimeImmutable($hoy))->diff(new DateTimeImmutable($fin))->days;
+
+// Calendario de turnos de demostración: cuarto turno (largo, noche, libre, libre) con inicio desfasado por persona.
+require_once APP_DIR . '/lib/handlers_coord.php';
+$turnantes = array_values(array_filter($funcs, fn($f) => $f['jornada'] === 'turnante'));
+foreach ($turnantes as $i => $f) {
+    h_coord_turnos_lote($db, [], ['unidad_id' => $turEq[$i % count($turEq)]['id'], 'titular_id' => $f['id'],
+        'desde' => fecha_add($hoy, $i % 4), 'hasta' => $fin, 'patron' => ['largo', 'noche', '', '']]);
+}
+echo "Turnos cargados para " . count($turnantes) . " turnantes\n";
 $ok = 0; $fallos = 0;
 foreach ($funcs as $f) {
     $veces = mt_rand(0, 2);
@@ -58,11 +67,14 @@ foreach ($funcs as $f) {
                 if ($tipoSel <= 5) $in += ['tipo' => 'ADM', 'fecha_inicio' => $ini, 'fraccion' => ['completo', 'completo', 'am', 'pm'][mt_rand(0, 3)]];
                 else $in += ['tipo' => 'FL', 'fecha_inicio' => $ini, 'fecha_fin' => fecha_add($ini, mt_rand(2, 12))];
             } else {
-                $u = $turEq[array_rand($turEq)]['id'];
-                $dia = fn($fch) => ['fecha' => $fch, 'turno' => mt_rand(0, 1) ? 'largo' : 'noche', 'unidad_id' => $u, 'reemplazo' => 'Reemplazo Demo'];
-                if ($tipoSel <= 4) $in = ['funcionario_id' => $f['id'], 'tipo' => 'FL', 'dias' => [$dia($ini), $dia(fecha_add($ini, 4))]];
-                elseif ($tipoSel <= 7) $in = ['funcionario_id' => $f['id'], 'tipo' => 'ADM', 'fraccion' => 'completo', 'dias' => [$dia($ini)]];
-                else $in = ['funcionario_id' => $f['id'], 'tipo' => 'CT', 'cambio_con' => 'Colega Demo', 'dias' => [$dia($ini)]];
+                // Sobre sus turnos cargados, con reemplazo y compañero de la nómina (SPEC-v2 §4.3).
+                $mios = turnos_de($db, (int)$f['id'], $ini, fecha_add($ini, 6));
+                $otro = $turnantes[array_rand($turnantes)];
+                if (!$mios || (int)$otro['id'] === (int)$f['id']) continue;
+                if ($tipoSel <= 4) $in = ['funcionario_id' => $f['id'], 'tipo' => 'FL', 'fecha_inicio' => $ini, 'fecha_fin' => fecha_add($ini, 6),
+                                          'reemplazos' => array_fill_keys(array_column($mios, 'id'), (int)$otro['id'])];
+                elseif ($tipoSel <= 7) $in = ['funcionario_id' => $f['id'], 'tipo' => 'ADM', 'fraccion' => 'completo', 'turno_id' => $mios[0]['id'], 'reemplazo_id' => (int)$otro['id']];
+                else $in = ['funcionario_id' => $f['id'], 'tipo' => 'CT', 'turno_id' => $mios[0]['id'], 'cambio_con_id' => (int)$otro['id']];
             }
             $r = reg_crear($db, $in, ['ip' => '127.0.0.1', 'ua' => 'seed-demo', 'cfg' => cfg()]);
             $ok++;
