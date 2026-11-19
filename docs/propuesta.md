@@ -178,6 +178,6 @@ Ordenadas de la más importante a la menos importante.
 11. **Primera activación:** ¿prefieres entregar los códigos en una hoja impresa por equipo o uno por uno por WhatsApp?
 12. **Teléfono:** ¿se guarda el teléfono de cada funcionario (para coordinar reemplazos) o no?
 13. **Firebase:** ¿apago o borro el proyecto `administrador-de-turnos-hpm` y el sitio estático de la app anterior en DreamHost? No lo haré sin tu confirmación explícita.
-14. **Referencia visual:** quedo esperando la imagen para la Fase 3.
+14. **Referencia visual:** recibida — el design system **Vital** (ver `docs/vital-evaluacion.md`, con 4 preguntas propias).
 
 Espero tu decisión antes de pasar a la Fase 3 (SPEC v2 y plan).
