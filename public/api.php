@@ -52,6 +52,8 @@ $rutas = [
     ['GET',  'coord/equipos',                  'h_coord_equipos_listar',    'coord'],
     ['POST', 'coord/equipos/(\d+)',            'h_coord_equipos_guardar',   'coord'],
     ['POST', 'coord/equipos',                  'h_coord_equipos_guardar',   'coord'],
+    ['GET',  'coord/horas-extra/exportar',     'h_coord_horas_extra_exportar', 'coord'],
+    ['GET',  'coord/horas-extra',              'h_coord_horas_extra',      'coord'],
     ['GET',  'coord/turnos',                   'h_coord_turnos',            'coord'],
     ['GET',  'coord/turnos/sin-cubrir',        'h_coord_turnos_sin_cubrir', 'coord'],
     ['POST', 'coord/turnos/(\d+)/cubrir',      'h_coord_turno_cubrir',      'coord'],
