@@ -29,7 +29,8 @@ function tx(PDO $db, callable $fn): mixed
     }
 }
 
-function db_schema(PDO $db): void
+/** Esquema de la versión 1 (el publicado antes de las migraciones). Solo lo usa la migración 1. */
+function db_esquema_v1(PDO $db): void
 {
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS equipos (
@@ -155,4 +156,10 @@ function rate_registrar(PDO $db, string $clave): void
 {
     $db->prepare('INSERT INTO rate (clave,ts) VALUES (?,?)')->execute([$clave, time()]);
     if (random_int(1, 50) === 1) $db->prepare('DELETE FROM rate WHERE ts<?')->execute([time() - 86400]);
+}
+
+/** Crea o actualiza el esquema a la última versión (compatibilidad con install.php y pruebas). */
+function db_schema(PDO $db): void
+{
+    db_migrar($db);
 }

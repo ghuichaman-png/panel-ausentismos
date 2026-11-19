@@ -5,6 +5,7 @@ if (!defined('APP_DIR')) define('APP_DIR', dirname(__DIR__));
 
 require_once __DIR__ . '/util.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/migraciones.php';
 require_once __DIR__ . '/notificar.php';
 require_once __DIR__ . '/reglas.php';
 
@@ -39,6 +40,7 @@ function db(): PDO
             throw new ApiError('El sistema aún no está instalado (falta la base de datos). Ejecuta install.php.', 503);
         }
         $pdo = db_open($path);
+        if (db_version($pdo) < db_version_ultima()) db_migrar($pdo, $path); // publicar código nuevo sobre una base existente
     }
     return $pdo;
 }
