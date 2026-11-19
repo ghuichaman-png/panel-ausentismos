@@ -79,20 +79,27 @@ function h_calendario(PDO $db, array $p, array $in): array
 
 function h_simular(PDO $db, array $p, array $in): array
 {
+    $in['funcionario_id'] = yo();   // siempre la persona de la sesión
     return reg_crear($db, $in, ['cfg' => cfg()], true);
 }
 
-function h_crear(PDO $db, array $p, array $in): array
+/** Límite de envíos por cuenta (no por IP: todo el hospital comparte una). */
+function limite_envios(PDO $db, int $actor): string
 {
-    // Honeypot: los bots llenan el campo oculto; respondemos "ok" sin guardar nada.
-    if (!empty($in['web'])) return ['ok' => true, 'codigo' => 'AUS-0000-0000', 'estado' => 'pendiente'];
-    $ip = ip_cliente();
-    $clave = 'crear:' . $ip;
+    $clave = 'crear:f' . $actor;
     $max = (int)cfg('limite_envios_hora');
     if ($max > 0 && rate_contar($db, $clave, 3600) >= $max) {
         throw new ApiError('Has enviado muchas solicitudes en poco tiempo. Intenta más tarde o habla con coordinación.', 429);
     }
-    $r = reg_crear($db, $in, ['ip' => $ip, 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'cfg' => cfg()]);
+    return $clave;
+}
+
+function h_crear(PDO $db, array $p, array $in): array
+{
+    $yo = yo();
+    $clave = limite_envios($db, $yo);
+    $in['funcionario_id'] = $yo;    // se ignora cualquier persona indicada en el cuerpo
+    $r = reg_crear($db, $in, ['ip' => ip_cliente(), 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'cfg' => cfg(), 'creada_por' => $yo]);
     rate_registrar($db, $clave);
     return ['ok' => true] + $r;
 }
@@ -109,31 +116,18 @@ function sol_publica(array $s): array
     ];
 }
 
+/** «Mis solicitudes»: solo las de la persona con sesión (opcionalmente filtradas por código). */
 function h_solicitudes_listar(PDO $db, array $p, array $in): array
 {
+    $yo = yo();
     $codigo = strtoupper(limpiar($_GET['codigo'] ?? '', 30));
-    $fid = (int)($_GET['funcionario_id'] ?? 0);
-    if ($codigo !== '') {
-        $st = $db->prepare('SELECT * FROM solicitudes WHERE codigo=?');
-        $st->execute([$codigo]);
-    } elseif ($fid > 0) {
-        $st = $db->prepare('SELECT * FROM solicitudes WHERE funcionario_id=? OR rut=(SELECT rut FROM funcionarios WHERE id=?)
-                            ORDER BY fecha_inicio DESC, id DESC LIMIT 100');
-        $st->execute([$fid, $fid]);
-    } else {
-        throw new ApiError('Indica el nombre o el código de la solicitud.', 422);
-    }
+    $sql = 'SELECT * FROM solicitudes WHERE funcionario_id=?' . ($codigo !== '' ? ' AND codigo=?' : '') . ' ORDER BY fecha_inicio DESC, id DESC LIMIT 200';
+    $st = $db->prepare($sql);
+    $st->execute($codigo !== '' ? [$yo, $codigo] : [$yo]);
     return ['solicitudes' => array_map('sol_publica', $st->fetchAll())];
 }
 
 function h_anular(PDO $db, array $p, array $in): array
 {
-    $clave = 'anular:' . ip_cliente();
-    if (rate_contar($db, $clave, 3600) >= 10) throw new ApiError('Demasiados intentos. Intenta más tarde.', 429);
-    try {
-        return reg_anular($db, (int)$p[1], (string)($in['rut'] ?? ''), false, '', ip_cliente());
-    } catch (ApiError $e) {
-        if ($e->getCode() === 403) rate_registrar($db, $clave);
-        throw $e;
-    }
+    return reg_anular($db, (int)$p[1], yo(), false, '', ip_cliente());
 }

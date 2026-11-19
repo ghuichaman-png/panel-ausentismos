@@ -144,10 +144,11 @@ function db_sembrar_equipos(PDO $db): int
     return count($equipos);
 }
 
-function auditar(PDO $db, string $accion, ?int $solId, string $detalle = '', string $ip = ''): void
+/** $actor: funcionario_id de quien hizo la acción (null = sistema o consola). */
+function auditar(PDO $db, string $accion, ?int $solId, string $detalle = '', string $ip = '', ?int $actor = null): void
 {
-    $db->prepare('INSERT INTO auditoria (fecha,accion,solicitud_id,detalle,ip) VALUES (?,?,?,?,?)')
-       ->execute([Reloj::stamp(), $accion, $solId, mb_substr($detalle, 0, 2000), $ip]);
+    $db->prepare('INSERT INTO auditoria (fecha,accion,solicitud_id,detalle,ip,funcionario_id) VALUES (?,?,?,?,?,?)')
+       ->execute([Reloj::stamp(), $accion, $solId, mb_substr($detalle, 0, 2000), $ip, $actor]);
 }
 
 function rate_contar(PDO $db, string $clave, int $ventanaSeg): int

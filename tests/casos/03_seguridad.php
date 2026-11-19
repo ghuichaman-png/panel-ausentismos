@@ -27,10 +27,12 @@ prueba('Bug N2: la simulación no expone nombre, equipo ni calidad jurídica de 
         chequear(!str_contains($txt, 'Persona Honorarios Ficticia'), "$caso: no revela el nombre");
         chequear(!array_key_exists('persona', $r), "$caso: no devuelve el bloque 'persona'");
     };
-    // 1) eligiendo a otra persona por id (sin login, cualquiera puede hacerlo)
-    $sinDatos(h_simular($db, [], ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02', 'fraccion' => 'completo']), 'por id');
-    // 2) escribiendo solo el RUT de otra persona en «No estoy en la lista»
-    $sinDatos(h_simular($db, [], ['rut' => $rutA, 'nombre' => 'xx', 'jornada' => 'diurno', 'calidad' => 'titular',
-                                 'equipo_id' => eid($db, 'H7'), 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02']), 'por RUT');
+    // 1) la simulación (función de reglas) no devuelve datos de la persona
+    $sinDatos(reg_crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02', 'fraccion' => 'completo'], ['cfg' => cfg_defaults()], true), 'por id');
+    // 2) la vía «solo el RUT» (fuera de nómina) ya no existe desde la etapa 2: se rechaza sin revelar nada
+    $e = lanza(fn() => reg_crear($db, ['rut' => $rutA, 'nombre' => 'xx', 'jornada' => 'diurno', 'calidad' => 'titular',
+                                       'equipo_id' => eid($db, 'H7'), 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02'], ['cfg' => cfg_defaults()], true), 422);
+    chequear($e !== null && !str_contains($e->getMessage(), 'Honorarios'), 'por RUT: se rechaza sin revelar datos');
+    // 3) por HTTP, simular siempre usa a la persona de la sesión: ver tests/casos/10_solicitudes_sesion.php
 });
 

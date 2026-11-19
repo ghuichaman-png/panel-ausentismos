@@ -56,47 +56,36 @@ function h_coord_solicitudes(PDO $db, array $p, array $in): array
     return ['solicitudes' => $rows, 'hoy' => $hoy, 'limite' => count($rows) >= 300];
 }
 
+/** Nombre de la persona de coordinación con sesión (queda como «Resuelta por»). */
+function mi_nombre(PDO $db): string
+{
+    $st = $db->prepare('SELECT nombre FROM funcionarios WHERE id=?');
+    $st->execute([yo()]);
+    return (string)$st->fetchColumn();
+}
+
 function h_coord_resolver(PDO $db, array $p, array $in): array
 {
-    return reg_resolver($db, (int)$p[1], (string)($in['accion'] ?? ''), (string)($in['motivo'] ?? ''), (string)($in['resuelto_por'] ?? ''), ip_cliente());
+    return reg_resolver($db, (int)$p[1], (string)($in['accion'] ?? ''), (string)($in['motivo'] ?? ''), mi_nombre($db), ip_cliente(), yo());
 }
 
 function h_coord_revertir(PDO $db, array $p, array $in): array
 {
-    return reg_revertir($db, (int)$p[1], (string)($in['motivo'] ?? ''), (string)($in['resuelto_por'] ?? ''),
-                        !empty($in['acepta_sobre_cupo']), (string)($in['justificacion'] ?? ''), ip_cliente());
+    return reg_revertir($db, (int)$p[1], (string)($in['motivo'] ?? ''), mi_nombre($db),
+                        !empty($in['acepta_sobre_cupo']), (string)($in['justificacion'] ?? ''), ip_cliente(), yo());
 }
 
 function h_coord_anular(PDO $db, array $p, array $in): array
 {
-    return reg_anular($db, (int)$p[1], null, true, (string)($in['resuelto_por'] ?? ''), ip_cliente());
+    return reg_anular($db, (int)$p[1], yo(), true, mi_nombre($db), ip_cliente());
 }
 
-function h_coord_vincular(PDO $db, array $p, array $in): array
+/** Coordinación registra una solicitud en nombre de otra persona (queda auditado quién la creó). */
+function h_coord_en_nombre_de(PDO $db, array $p, array $in): array
 {
-    return tx($db, function () use ($db, $p, $in) {
-        $s = reg_sol($db, (int)$p[1]);
-        if (!empty($in['crear'])) {
-            $st = $db->prepare('SELECT id FROM funcionarios WHERE rut=?');
-            $st->execute([$s['rut']]);
-            $fid = $st->fetchColumn();
-            if (!$fid) {
-                if ($s['jornada'] === 'diurno' && !$s['equipo_id']) throw new ApiError('La solicitud no tiene equipo.', 422);
-                $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,activo) VALUES (?,?,?,?,?,?,1)')
-                   ->execute([$s['nombre'], texto_norm($s['nombre']), $s['rut'], $s['jornada'], $s['equipo_id'], $s['calidad']]);
-                $fid = $db->lastInsertId();
-            }
-        } else {
-            $fid = (int)($in['funcionario_id'] ?? 0);
-            $st = $db->prepare('SELECT rut FROM funcionarios WHERE id=?');
-            $st->execute([$fid]);
-            if (!$st->fetchColumn()) throw new ApiError('Esa persona no existe en la nómina.', 422);
-        }
-        $db->prepare('UPDATE solicitudes SET funcionario_id=?, fuera_de_nomina=0 WHERE id=?')->execute([(int)$fid, $s['id']]);
-        $db->prepare('UPDATE solicitudes SET funcionario_id=?, fuera_de_nomina=0 WHERE rut=? AND funcionario_id IS NULL')->execute([(int)$fid, $s['rut']]);
-        auditar($db, 'vincular', (int)$s['id'], "{$s['codigo']} → funcionario $fid", ip_cliente());
-        return ['funcionario_id' => (int)$fid];
-    });
+    if (empty($in['funcionario_id'])) throw new ApiError('Elige a la persona.', 422);
+    $r = reg_crear($db, $in, ['ip' => ip_cliente(), 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'cfg' => cfg(), 'creada_por' => yo()]);
+    return ['ok' => true] + $r;
 }
 
 function h_coord_calendario(PDO $db, array $p, array $in): array

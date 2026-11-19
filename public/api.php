@@ -34,7 +34,7 @@ $rutas = [
     ['POST', 'coord/solicitudes/(\d+)/resolver', 'h_coord_resolver',        'coord'],
     ['POST', 'coord/solicitudes/(\d+)/revertir', 'h_coord_revertir',        'coord'],
     ['POST', 'coord/solicitudes/(\d+)/anular',   'h_coord_anular',          'coord'],
-    ['POST', 'coord/solicitudes/(\d+)/vincular', 'h_coord_vincular',        'coord'],
+    ['POST', 'coord/solicitudes/en-nombre-de', 'h_coord_en_nombre_de',      'coord'],
     ['GET',  'coord/calendario',               'h_coord_calendario',        'coord'],
     ['GET',  'coord/resumen',                  'h_coord_resumen',           'coord'],
     ['GET',  'coord/exportar',                 'h_coord_exportar',          'coord'],

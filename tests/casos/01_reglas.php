@@ -120,21 +120,23 @@ prueba('Rechazo y anulación liberan cupo; rechazada → autorizada re-verifica 
     lanza(fn() => reg_resolver($db, $ra['id'], 'rechazar', '', 'JT'), 409); // ya autorizada
 });
 
-prueba('Anulación: RUT incorrecto falla; pasado el plazo falla; en plazo funciona', function () {
+prueba('Anulación: otra persona no puede; pasado el plazo falla; en plazo funciona; coordinación siempre', function () {
     $db = nuevaDb();
     $a = mk($db, 'Ana Uno', 'diurno', 'H7');
+    $b = mk($db, 'Beto Dos', 'diurno', 'H7');
     $r = crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-02', 'fraccion' => 'completo']);
-    lanza(fn() => reg_anular($db, $r['id'], '11111111-1', false), 403, 'RUT');
+    // Desde la etapa 2 se identifica por la sesión (antes: por RUT). Nadie anula la de otra persona.
+    lanza(fn() => reg_anular($db, $r['id'], $b, false), 403, 'propias');
+    lanza(fn() => reg_anular($db, $r['id'], null, false), 403, 'propias');
     // 2026-12-02 es la primera fecha; hoy = 12-01 → aún en plazo (hasta 23:59 de hoy)
-    $rutA = rutDe($db, $a);
     $r2 = crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-04', 'fraccion' => 'completo']);
-    reg_anular($db, $r2['id'], $rutA, false);
-    chequear($db->query("SELECT estado FROM solicitudes WHERE id={$r2['id']}")->fetchColumn() === 'anulada', 'anulada en plazo');
+    reg_anular($db, $r2['id'], $a, false);
+    chequear($db->query("SELECT estado FROM solicitudes WHERE id={$r2['id']}")->fetchColumn() === 'anulada', 'anulada en plazo por su dueña');
     // avanzamos el reloj al día de la primera fecha: ya no se puede
     Reloj::$fijo = new DateTimeImmutable('2026-12-02 00:05:00', new DateTimeZone('America/Santiago'));
-    lanza(fn() => reg_anular($db, $r['id'], $rutA, false), 409, 'plazo');
-    reg_anular($db, $r['id'], null, true, 'JT'); // coordinación sí puede
-    chequear($db->query("SELECT estado FROM solicitudes WHERE id={$r['id']}")->fetchColumn() === 'anulada', 'coordinación anula sin RUT ni plazo');
+    lanza(fn() => reg_anular($db, $r['id'], $a, false), 409, 'plazo');
+    reg_anular($db, $r['id'], $b, true, 'JT'); // coordinación sí puede
+    chequear($db->query("SELECT estado FROM solicitudes WHERE id={$r['id']}")->fetchColumn() === 'anulada', 'coordinación anula sin plazo');
     Reloj::$fijo = new DateTimeImmutable('2026-12-01 09:00:00', new DateTimeZone('America/Santiago'));
 });
 
@@ -154,17 +156,15 @@ prueba('Solicitudes superpuestas de la misma persona se rechazan', function () {
     lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'completo', 'dias' => [$dia('largo')]]), 409);
 });
 
-prueba('Validaciones: fecha pasada, fuera de nómina, honeypot de formulario y código', function () {
+prueba('Validaciones: fecha pasada, persona obligatoria (ya no hay «fuera de nómina») y código correlativo', function () {
     $db = nuevaDb();
     $a = mk($db, 'Ana Uno', 'diurno', 'H7');
     lanza(fn() => crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-11-30', 'fraccion' => 'completo']), 422, 'pasadas');
-    lanza(fn() => crear($db, ['rut' => '1-9', 'nombre' => 'X', 'tipo' => 'ADM']), 422);
-    $rutOk = '16000000-' . rut_dv('16000000');
-    $r = crear($db, ['rut' => $rutOk, 'nombre' => 'Persona Externa', 'jornada' => 'diurno', 'equipo_id' => eid($db, 'H8'),
-                     'calidad' => 'contrata', 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'completo']);
-    chequear((int)$db->query("SELECT fuera_de_nomina FROM solicitudes WHERE id={$r['id']}")->fetchColumn() === 1, 'marcada fuera de nómina');
+    lanza(fn() => crear($db, ['rut' => '16000000-' . rut_dv('16000000'), 'nombre' => 'Persona Externa', 'jornada' => 'diurno',
+                              'equipo_id' => eid($db, 'H8'), 'calidad' => 'contrata', 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10']), 422, 'persona');
+    $r = crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'am']);
     chequear(preg_match('/^AUS-2026-0001$/', $r['codigo']) === 1, 'código AUS-2026-0001: ' . $r['codigo']);
-    $r2 = crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'completo']);
+    $r2 = crear($db, ['funcionario_id' => $a, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'pm']);
     chequear($r2['codigo'] === 'AUS-2026-0002', 'código correlativo');
 });
 
