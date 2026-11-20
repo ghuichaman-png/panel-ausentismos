@@ -5,15 +5,21 @@ if (!defined('APP_DIR')) define('APP_DIR', dirname(__DIR__));
 
 require_once __DIR__ . '/util.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/migraciones.php';
 require_once __DIR__ . '/notificar.php';
 require_once __DIR__ . '/reglas.php';
+require_once __DIR__ . '/cuentas.php';
+require_once __DIR__ . '/saldos.php';
+require_once __DIR__ . '/turnos.php';
+require_once __DIR__ . '/horas_extra.php';
 
 function cfg_defaults(): array
 {
     return [
-        'titulo' => 'Ausentismos · Kinesiología HPM', 'logo' => '', 'db_path' => '', 'clave_hash' => '', 'coord_sin_clave' => false,
+        'titulo' => 'Ausentismos · Kinesiología HPM', 'logo' => '', 'db_path' => '',
         'timezone' => 'America/Santiago', 'forzar_https' => true,
-        'limite_envios_hora' => 10, 'login_max_intentos' => 5, 'login_bloqueo_min' => 15, 'sesion_horas' => 8,
+        'limite_envios_hora' => 10, 'limite_ip_auth_hora' => 300,
+        'saldo_fl_anual' => 15, 'saldo_adm_anual' => 6,
         'fl_largo_dias_habiles' => 5, 'anticipacion_min_dias' => null, 'horizonte_max_dias' => null,
     ];
 }
@@ -39,6 +45,7 @@ function db(): PDO
             throw new ApiError('El sistema aún no está instalado (falta la base de datos). Ejecuta install.php.', 503);
         }
         $pdo = db_open($path);
+        if (db_version($pdo) < db_version_ultima()) db_migrar($pdo, $path); // publicar código nuevo sobre una base existente
     }
     return $pdo;
 }
@@ -56,7 +63,7 @@ function cabeceras_seguridad(): void
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: same-origin');
     header('X-Frame-Options: DENY');
-    header("Content-Security-Policy: default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    header("Content-Security-Policy: default-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
 }
 
 function json_out(mixed $data, int $code = 200): never
@@ -70,7 +77,8 @@ function json_out(mixed $data, int $code = 200): never
 
 function body_json(): array
 {
-    $raw = file_get_contents('php://input');
+    // AUS_PRUEBA_CUERPO solo lo define tests/api_sub.php (en CLI no existe php://input).
+    $raw = defined('AUS_PRUEBA_CUERPO') ? (string)constant('AUS_PRUEBA_CUERPO') : file_get_contents('php://input');
     if ($raw === false || trim($raw) === '') return [];
     $d = json_decode($raw, true);
     if (!is_array($d)) throw new ApiError('La solicitud no tiene un formato válido.', 400);

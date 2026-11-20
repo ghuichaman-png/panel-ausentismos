@@ -1,0 +1,130 @@
+# Publica la app en DreamHost (plan, paso 7.1).
+#
+# NO corre solo: se lanza a mano desde GitHub → Actions → «Publicar en DreamHost» → Run workflow.
+# Antes hay que crear los secretos del repositorio (Settings → Secrets and variables → Actions):
+#   DH_HOST       servidor SSH de DreamHost (p. ej. iad1-shared-b7-01.dreamhost.com)
+#   DH_USER       usuario SSH/SFTP
+#   DH_SSH_KEY    llave privada SSH (la pública va en ~/.ssh/authorized_keys del usuario en DreamHost)
+#   DH_WEB_DIR    carpeta web, p. ej. /home/USUARIO/dominio.cl/ausentismos
+#   DH_APP_DIR    carpeta privada con lib/ y config.php, p. ej. /home/USUARIO/ausentismos-app
+#   DH_DB_PATH    ruta del .sqlite (la misma de config.php), para respaldarlo antes de publicar
+#
+# Qué sube: el contenido de lib/ (a DH_APP_DIR/lib) y de public/ (a DH_WEB_DIR).
+# Qué NO sube nunca: config.php, la base de datos, tests/, herramientas/, los CSV, ni install.php
+# (salvo que se marque «incluir_instalador» para la primera instalación).
+# No borra nada en el servidor (rsync sin --delete).
+
+name: Publicar en DreamHost
+
+on:
+  workflow_dispatch:
+    inputs:
+      incluir_instalador:
+        description: 'Subir install.php (solo la primera vez; bórralo del servidor después de instalar)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: publicar-dreamhost
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    name: Pruebas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, mbstring
+          coverage: none
+      - name: Correr todas las pruebas
+        run: php tests/run.php
+
+  publicar:
+    name: Publicar
+    needs: pruebas
+    runs-on: ubuntu-latest
+    environment: produccion   # en Settings → Environments se puede exigir una aprobación manual
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Revisar que estén los secretos
+        env:
+          DH_HOST: ${{ secrets.DH_HOST }}
+          DH_USER: ${{ secrets.DH_USER }}
+          DH_SSH_KEY: ${{ secrets.DH_SSH_KEY }}
+          DH_WEB_DIR: ${{ secrets.DH_WEB_DIR }}
+          DH_APP_DIR: ${{ secrets.DH_APP_DIR }}
+          DH_DB_PATH: ${{ secrets.DH_DB_PATH }}
+        run: |
+          for v in DH_HOST DH_USER DH_SSH_KEY DH_WEB_DIR DH_APP_DIR DH_DB_PATH; do
+            if [ -z "${!v}" ]; then echo "::error::Falta el secreto $v"; exit 1; fi
+          done
+
+      - name: Preparar los archivos a subir
+        env:
+          DH_APP_DIR: ${{ secrets.DH_APP_DIR }}
+          INSTALADOR: ${{ inputs.incluir_instalador }}
+        run: |
+          mkdir -p salida/web salida/app
+          cp -a public/. salida/web/
+          cp -a lib salida/app/
+          # app-dir.php apunta a la carpeta privada del servidor
+          if ! printf '%s' "$DH_APP_DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$'; then echo "::error::DH_APP_DIR debe ser una ruta absoluta simple"; exit 1; fi
+          sed -i "s|^\$APP_DIR_PRIVADA = .*|\$APP_DIR_PRIVADA = '$DH_APP_DIR';|" salida/web/app-dir.php
+          grep -qF "\$APP_DIR_PRIVADA = '$DH_APP_DIR';" salida/web/app-dir.php || { echo "::error::No pude ajustar app-dir.php"; exit 1; }
+          php -l salida/web/app-dir.php
+          if [ "$INSTALADOR" != "true" ]; then rm -f salida/web/install.php; fi
+          # Seguro: nada privado en lo que se sube
+          find salida \( -name 'config.php' -o -name '*.sqlite*' -o -name '*.csv' -o -name '*.lock' \) -print -delete
+          echo "Se subirá:"; find salida -type f | sort
+
+      - name: Preparar la conexión SSH
+        env:
+          DH_HOST: ${{ secrets.DH_HOST }}
+          DH_SSH_KEY: ${{ secrets.DH_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DH_SSH_KEY" > ~/.ssh/id_dh && chmod 600 ~/.ssh/id_dh
+          ssh-keyscan -H "$DH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Respaldar la base en el servidor antes de publicar
+        env:
+          DH_HOST: ${{ secrets.DH_HOST }}
+          DH_USER: ${{ secrets.DH_USER }}
+          DH_DB_PATH: ${{ secrets.DH_DB_PATH }}
+        run: |
+          if ! printf '%s' "$DH_DB_PATH" | grep -Eq '^/[A-Za-z0-9._/-]+$'; then echo "::error::DH_DB_PATH debe ser una ruta absoluta simple"; exit 1; fi
+          # El script va por la entrada estándar; la ruta, como argumento.
+          ssh -i ~/.ssh/id_dh "$DH_USER@$DH_HOST" php -- "$DH_DB_PATH" <<'PHP'
+          <?php
+          $db = $argv[1];
+          if (!is_file($db)) { echo "Aún no hay base (primera instalación): nada que respaldar.\n"; exit(0); }
+          $dest = $db . '.antes-publicar-' . date('Ymd-His') . '.sqlite';
+          (new PDO('sqlite:' . $db))->exec("VACUUM INTO '" . str_replace("'", "''", $dest) . "'");
+          if (!is_file($dest)) { fwrite(STDERR, "No se pudo respaldar la base\n"); exit(1); }
+          echo "Respaldo: $dest\n";
+          PHP
+
+      - name: Subir lib/ a la carpeta privada
+        env:
+          DH_HOST: ${{ secrets.DH_HOST }}
+          DH_USER: ${{ secrets.DH_USER }}
+          DH_APP_DIR: ${{ secrets.DH_APP_DIR }}
+        run: rsync -rlvz --checksum -e "ssh -i ~/.ssh/id_dh" salida/app/lib/ "$DH_USER@$DH_HOST:$DH_APP_DIR/lib/"
+
+      - name: Subir public/ a la carpeta web
+        env:
+          DH_HOST: ${{ secrets.DH_HOST }}
+          DH_USER: ${{ secrets.DH_USER }}
+          DH_WEB_DIR: ${{ secrets.DH_WEB_DIR }}
+        run: rsync -rlvz --checksum -e "ssh -i ~/.ssh/id_dh" salida/web/ "$DH_USER@$DH_HOST:$DH_WEB_DIR/"
+
+      - name: Borrar la llave del runner
+        if: always()
+        run: rm -f ~/.ssh/id_dh

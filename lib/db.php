@@ -29,7 +29,8 @@ function tx(PDO $db, callable $fn): mixed
     }
 }
 
-function db_schema(PDO $db): void
+/** Esquema de la versión 1 (el publicado antes de las migraciones). Solo lo usa la migración 1. */
+function db_esquema_v1(PDO $db): void
 {
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS equipos (
@@ -121,11 +122,10 @@ CREATE INDEX IF NOT EXISTS ix_rate ON rate(clave, ts);
 SQL);
 }
 
-function db_sembrar_equipos(PDO $db): int
+/** Los 19 equipos iniciales (SPEC-v2 §3.1): [nombre, tiene_diurnos, tiene_turnantes, cupo]. */
+function db_equipos_iniciales(): array
 {
-    if ((int)$db->query('SELECT COUNT(*) FROM equipos')->fetchColumn() > 0) return 0;
-    // nombre, diurnos, turnantes, cupo
-    $equipos = [
+    return [
         ['H7', 1, 1, 2], ['H6', 1, 1, 2], ['UTI H5', 1, 1, 2], ['UTAC H5', 1, 0, 2], ['H5', 1, 1, 2],
         ['H3 Pensionados', 1, 0, 2], ['Q3 Neonatología', 1, 0, 2], ['Q2 UTI Qx', 0, 1, 0], ['H8', 1, 1, 2],
         ['Traumatología', 1, 0, 2], ['Neurología', 1, 0, 2], ['Cardio adultos', 1, 0, 2],
@@ -133,15 +133,22 @@ function db_sembrar_equipos(PDO $db): int
         ['Oncología', 1, 0, 2], ['Respiratorio', 1, 0, 2],
         ['Oncología infantil', 1, 0, 2], ['Neurología infantil', 1, 0, 2],
     ];
+}
+
+function db_sembrar_equipos(PDO $db): int
+{
+    if ((int)$db->query('SELECT COUNT(*) FROM equipos')->fetchColumn() > 0) return 0;
+    $equipos = db_equipos_iniciales();
     $st = $db->prepare('INSERT INTO equipos (nombre,tiene_diurnos,tiene_turnantes,cupo_diurno,activo,orden) VALUES (?,?,?,?,1,?)');
     foreach ($equipos as $i => $e) $st->execute([$e[0], $e[1], $e[2], $e[3], $i + 1]);
     return count($equipos);
 }
 
-function auditar(PDO $db, string $accion, ?int $solId, string $detalle = '', string $ip = ''): void
+/** $actor: funcionario_id de quien hizo la acción (null = sistema o consola). */
+function auditar(PDO $db, string $accion, ?int $solId, string $detalle = '', string $ip = '', ?int $actor = null): void
 {
-    $db->prepare('INSERT INTO auditoria (fecha,accion,solicitud_id,detalle,ip) VALUES (?,?,?,?,?)')
-       ->execute([Reloj::stamp(), $accion, $solId, mb_substr($detalle, 0, 2000), $ip]);
+    $db->prepare('INSERT INTO auditoria (fecha,accion,solicitud_id,detalle,ip,funcionario_id) VALUES (?,?,?,?,?,?)')
+       ->execute([Reloj::stamp(), $accion, $solId, mb_substr($detalle, 0, 2000), $ip, $actor]);
 }
 
 function rate_contar(PDO $db, string $clave, int $ventanaSeg): int
@@ -155,4 +162,10 @@ function rate_registrar(PDO $db, string $clave): void
 {
     $db->prepare('INSERT INTO rate (clave,ts) VALUES (?,?)')->execute([$clave, time()]);
     if (random_int(1, 50) === 1) $db->prepare('DELETE FROM rate WHERE ts<?')->execute([time() - 86400]);
+}
+
+/** Crea o actualiza el esquema a la última versión (compatibilidad con install.php y pruebas). */
+function db_schema(PDO $db): void
+{
+    db_migrar($db);
 }

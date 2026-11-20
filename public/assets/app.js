@@ -1,4 +1,4 @@
-/* Vista pública: calendario, formulario "Pedir días" y "Mis solicitudes". */
+/* App del funcionario: ingreso, calendario, "Pedir días", "Mis solicitudes" y "Mi perfil". */
 (function () {
   'use strict';
   const { h, api, vaciar } = AUS;
@@ -6,27 +6,29 @@
   const mostrarEl = (el, v) => el.classList.toggle('oculto', !v);
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
   let CFG = null;
+  let SES = null;         // { persona, compartido } de la sesión iniciada
   let ULTIMA = null;      // última solicitud enviada (para la pantalla de confirmación)
-  let CODIGO_PREFILL = ''; // código a mostrar al abrir "Mis solicitudes"
 
   // ═══════════ Calendario ═══════════
   const C = { mes: null, vista: { tipo: 'turn' }, data: null, sel: null, listo: false };
 
+  // Vista: «Equipo» (por defecto el propio), «Todos» o «Turnantes» (SPEC-v2 §6.1). Se recuerda en este dispositivo.
   function poblarVista() {
     const sel = $('c-vista');
-    vaciar(sel);
-    const g = h('optgroup', { label: 'Equipos (diurnos)' });
-    CFG.equipos.filter((e) => e.tiene_diurnos).forEach((e) => g.append(h('option', { value: 'e:' + e.id }, e.nombre)));
-    sel.append(g, h('option', { value: 'todos' }, 'Todos los equipos'), h('option', { value: 'turn' }, 'Turnantes'));
-    let v = AUS.leer('aus_vista', null);
-    if (!v || ![...sel.options].some((o) => o.value === v)) v = sel.options[0].value;
-    sel.value = v;
-    C.vista = parseVista(v);
+    const equipos = CFG.equipos.filter((e) => e.tiene_diurnos);
+    vaciar(sel).append(...equipos.map((e) => h('option', { value: e.id }, e.nombre)));
+    const propio = SES.persona.jornada === 'diurno' ? SES.persona.equipo_id : null;
+    const g = AUS.leer('aus_vista2', null) || {};
+    const modo = ['equipo', 'todos', 'turn'].includes(g.modo) ? g.modo : (propio ? 'equipo' : 'turn');
+    sel.value = equipos.some((e) => e.id === g.equipoId) ? g.equipoId : (propio || (equipos[0] || {}).id);
+    document.querySelector('input[name="c-modo"][value="' + modo + '"]').checked = true;
+    aplicarVista();
   }
-  function parseVista(v) {
-    if (v === 'todos') return { tipo: 'todos' };
-    if (v === 'turn') return { tipo: 'turn' };
-    return { tipo: 'equipo', equipoId: +v.slice(2) };
+  function aplicarVista() {
+    const modo = document.querySelector('input[name="c-modo"]:checked').value;
+    mostrarEl($('c-vista'), modo === 'equipo');
+    C.vista = modo === 'equipo' ? { tipo: 'equipo', equipoId: +$('c-vista').value } : { tipo: modo };
+    AUS.guardar('aus_vista2', { modo, equipoId: +$('c-vista').value });
   }
 
   async function cargarMes() {
@@ -59,16 +61,20 @@
     $('c-ant').onclick = () => { C.mes = AUS.mesAdd(C.mes, -1); C.sel = null; cargarMes(); };
     $('c-sig').onclick = () => { C.mes = AUS.mesAdd(C.mes, 1); C.sel = null; cargarMes(); };
     $('c-hoy').onclick = () => { C.mes = AUS.hoyISO().slice(0, 7); C.sel = AUS.hoyISO(); cargarMes(); };
-    $('c-vista').onchange = (ev) => { AUS.guardar('aus_vista', ev.target.value); C.vista = parseVista(ev.target.value); pintarCal(false); };
+    $('c-vista').onchange = () => { aplicarVista(); pintarCal(false); };
+    document.querySelectorAll('input[name="c-modo"]').forEach((r) => r.addEventListener('change', () => { aplicarVista(); pintarCal(false); }));
     $('c-imprimir').onclick = () => window.print();
   }
   function abrirCal() { initCal(); cargarMes(); }
 
   // ═══════════ Formulario ═══════════
-  const F = { persona: null, fuera: false, tipo: null, fraccion: 'completo', dias: [], llenos: [], seq: 0 };
+  // turnos: mis turnos libres; reemp: {turno_id: {id, nombre}}; todos/uno: reemplazo general o del único turno; con: compañero del cambio
+  const F = { tipo: null, fraccion: 'completo', llenos: [], sinSaldo: '', seq: 0, turnos: [], reemp: {}, todos: null, uno: null, con: null };
 
-  const jornada = () => (F.persona ? F.persona.jornada : F.fuera ? document.querySelector('input[name="ff-jornada"]:checked').value : null);
+  const jornada = () => (SES ? SES.persona.jornada : null);   // siempre la persona de la sesión
   const unidades = () => CFG.equipos.filter((e) => e.tiene_turnantes);
+  // Tipo elegido, con su configuración (SPEC-v2 §3.5): rango, medio_dia, es_cambio_turno, exige_reemplazo…
+  const T = () => (F.tipo && CFG.tipos.find((x) => x.sigla === F.tipo)) || {};
 
   function opcionesSelect(sel, items, vacio) {
     vaciar(sel);
@@ -77,31 +83,17 @@
   }
 
   function resetForm() {
-    Object.assign(F, { persona: null, fuera: false, tipo: null, fraccion: 'completo', dias: [], llenos: [] });
-    ['f-nombre', 'f-desde', 'f-hasta', 'f-comentario', 'ff-rut', 'fd-reemplazo', 'fc-con', 'fc-fecha', 'fs-just', 'f-web'].forEach((i) => { $(i).value = ''; });
+    Object.assign(F, { tipo: null, fraccion: 'completo', llenos: [], reemp: {}, todos: null, uno: null, con: null });
+    ['f-desde', 'f-hasta', 'f-comentario', 'ft-reemp', 'ft-todos', 'fc-con', 'fs-just'].forEach((i) => { $(i).value = ''; });
     $('fs-acepta').checked = false;
-    $('fc-turno').value = '';
-    document.querySelector('input[name="ff-jornada"][value="diurno"]').checked = true;
+    vaciar($('fc-dev')).append(h('option', { value: '' }, 'Sin devolución'));
     $('f-error').textContent = '';
-    opcionesSelect($('fd-unidad'), unidades(), 'Elige la unidad…');
-    opcionesSelect($('ff-equipo'), CFG.equipos.filter((e) => e.tiene_diurnos));
     $('f-desde').min = AUS.hoyISO();
     $('f-hasta').min = AUS.hoyISO();
-    $('fc-fecha').min = AUS.hoyISO();
-    mostrarEl($('f-ficha'), false);
-    mostrarEl($('f-fuera'), false);
-    renderTipos();
-    actualizar();
-  }
-
-  function elegirPersona(p) {
-    F.persona = p; F.fuera = false;
-    $('f-nombre').value = p.nombre;
+    const p = SES.persona;
+    $('fi-nombre').textContent = p.nombre;
     $('fi-jornada').textContent = p.jornada === 'turnante' ? 'Turnante' : 'Diurno';
     $('fi-equipo').textContent = p.equipo || (p.jornada === 'turnante' ? 'Rota entre unidades' : '—');
-    $('fi-calidad').textContent = '—';
-    mostrarEl($('f-ficha'), true);
-    mostrarEl($('f-fuera'), false);
     renderTipos();
     actualizar();
   }
@@ -111,11 +103,11 @@
     const box = vaciar($('f-tipos'));
     mostrarEl($('f-tipo-box'), !!j);
     if (!j) { F.tipo = null; return; }
-    const tipos = j === 'turnante' ? ['FL', 'ADM', 'CT'] : ['FL', 'ADM'];
+    const tipos = CFG.tipos.filter((x) => x.lo_pide === 'funcionario' && (j === 'turnante' || !x.es_cambio_turno)).map((x) => x.sigla);
     if (!tipos.includes(F.tipo)) F.tipo = null;
     tipos.forEach((t) => box.append(h('label', { class: 'opcion' },
       h('input', { type: 'radio', name: 'tipo', value: t, checked: F.tipo === t, onchange: () => { F.tipo = t; renderFracs(); actualizar(); } }),
-      h('span', null, AUS.tipoLargo[t] + (t === 'FL' ? ' (feriado)' : '')))));
+      h('span', null, CFG.tipos.find((x) => x.sigla === t).nombre))));
     renderFracs();
   }
 
@@ -133,60 +125,71 @@
   function actualizar() {
     const j = jornada();
     const t = F.tipo;
-    mostrarEl($('f-fechas'), !!(j && t));
-    mostrarEl($('w-hasta'), t === 'FL');
-    mostrarEl($('f-frac-box'), t === 'ADM');
+    const tp = T();
+    const unTurno = j === 'turnante' && (tp.rango === 'un_dia' || !!tp.es_cambio_turno);   // el turnante elige un turno, no fechas
+    mostrarEl($('f-fechas'), !!(j && t) && !unTurno);
+    mostrarEl($('w-hasta'), tp.rango === 'rango');
+    mostrarEl($('f-frac-box'), !!tp.medio_dia);
     mostrarEl($('w-comentario'), !!(j && t));
-    mostrarEl($('f-turn'), j === 'turnante' && !!t); // FL, ADM y CT necesitan turno y unidad por fecha
-    mostrarEl($('f-defaults'), j === 'turnante' && t === 'FL');
-    mostrarEl($('f-ct'), j === 'turnante' && t === 'CT');
-    $('l-desde').textContent = t === 'FL' ? 'Desde' : t === 'CT' ? 'Fecha del turno que cedes' : 'Fecha';
-    if (j === 'turnante' && t) sincronizarDias(); else { F.dias = []; renderDias(); }
+    mostrarEl($('f-turn'), j === 'turnante' && !!t);
+    mostrarEl($('f-ct'), j === 'turnante' && !!tp.es_cambio_turno);
+    $('l-desde').textContent = tp.rango === 'rango' ? 'Desde' : 'Fecha';
+    if (j === 'turnante' && t) pintarTurnante(unTurno);
     simular();
   }
 
-  // ----- Turnantes: una fila por día -----
-  function sincronizarDias() {
-    const t = F.tipo;
-    const d = $('f-desde').value;
-    let fechas = [];
-    if (d) {
-      if (t === 'FL') {
-        const hasta = $('f-hasta').value || d;
-        let f = d;
-        while (f <= hasta && fechas.length < 62) { fechas.push(f); f = AUS.addDias(f, 1); }
-      } else fechas = [d];
-    }
-    const previos = Object.fromEntries(F.dias.map((x) => [x.fecha, x]));
-    F.dias = fechas.map((f) => previos[f] || { fecha: f, turno: $('fd-turno').value, unidad_id: +$('fd-unidad').value || 0, reemplazo: $('fd-reemplazo').value });
-    renderDias();
+  // ----- Turnantes: sobre sus turnos cargados (SPEC-v2 §4.3) -----
+  const etiquetaTurno = (x) => AUS.fmtLargo(x.fecha) + ' · ' + cap(x.tipo) + ' · ' + x.unidad;
+  const turnosEnRango = () => {
+    const d = $('f-desde').value, hst = $('f-hasta').value || d;
+    return d ? F.turnos.filter((x) => x.fecha >= d && x.fecha <= hst) : [];
+  };
+
+  async function cargarMisTurnos() {
+    try { F.turnos = (await api('turnos/mios')).turnos.filter((x) => x.estado === 'normal' && !x.en_solicitud); }
+    catch (e) { F.turnos = []; $('f-error').textContent = e.message; }
   }
 
-  function renderDias() {
-    const box = vaciar($('f-dias'));
-    F.dias.forEach((d) => {
-      const sTurno = h('select', { class: 'input', 'aria-label': 'Turno del ' + AUS.fmt(d.fecha), onchange: (e) => { d.turno = e.target.value; } },
-        h('option', { value: 'largo' }, 'Turno largo'), h('option', { value: 'noche' }, 'Turno noche'));
-      sTurno.value = d.turno;
-      const sUni = h('select', { class: 'input', 'aria-label': 'Unidad del ' + AUS.fmt(d.fecha), onchange: (e) => { d.unidad_id = +e.target.value || 0; } },
-        h('option', { value: '' }, 'Unidad…'), unidades().map((u) => h('option', { value: u.id }, u.nombre)));
-      sUni.value = d.unidad_id || '';
-      const fila = h('div', { class: 'dia-turno' }, h('span', { class: 'fecha' }, AUS.fmtLargo(d.fecha)), sTurno, sUni);
-      if (F.tipo !== 'CT') {
-        const r = h('input', { class: 'input reemp', type: 'text', maxlength: '120', placeholder: 'Quién te cubre', 'aria-label': 'Quién cubre el ' + AUS.fmt(d.fecha), value: d.reemplazo || '',
-          oninput: (e) => { d.reemplazo = e.target.value; } });
-        AUS.datalistNomina(r);
-        fila.append(r);
-      }
-      if (F.tipo === 'FL' && F.dias.length > 1) {
-        fila.append(h('button', { type: 'button', class: 'btn btn-chico', 'aria-label': 'Quitar el ' + AUS.fmt(d.fecha), onclick: () => { F.dias = F.dias.filter((x) => x !== d); renderDias(); simular(); } }, '×'));
-      }
-      box.append(fila);
+  /** Campo de texto con autocompletado de la nómina que guarda {id, nombre} en guardar(). */
+  function selectorPersona(input, guardar) {
+    if (input.dataset.ac) return;
+    input.dataset.ac = '1';
+    AUS.autocompletar(input, { onPick: (p) => { guardar({ id: p.id, nombre: p.nombre }); simular(); }, onClear: () => guardar(null) });
+  }
+
+  function pintarTurnante(unTurno) {
+    const tp = T();
+    mostrarEl($('ft-w-turno'), unTurno);
+    mostrarEl($('ft-w-reemp'), unTurno && !tp.es_cambio_turno);
+    mostrarEl($('ft-w-todos'), !unTurno);
+    const lista = vaciar($('ft-lista'));
+    const vacio = $('ft-vacio');
+    mostrarEl(vacio, false);
+    if (unTurno) {
+      const sel = $('ft-turno'), previo = sel.value;
+      vaciar(sel).append(h('option', { value: '' }, F.turnos.length ? 'Elige tu turno…' : 'No tienes turnos cargados'), ...F.turnos.map((x) => h('option', { value: x.id }, etiquetaTurno(x))));
+      sel.value = previo;
+      if (!F.turnos.length) { vacio.textContent = 'No tienes turnos cargados desde hoy. Si falta alguno, avisa a coordinación.'; mostrarEl(vacio, true); }
+      return;
+    }
+    const tr = turnosEnRango();
+    if ($('f-desde').value && !tr.length) { vacio.textContent = 'No tienes turnos cargados en esas fechas. Si falta alguno, avisa a coordinación.'; mostrarEl(vacio, true); }
+    tr.forEach((x) => {
+      const inp = h('input', { class: 'input', type: 'text', placeholder: F.todos ? F.todos.nombre : 'Quién lo cubre', 'aria-label': 'Quién cubre el turno del ' + AUS.fmt(x.fecha),
+        value: F.reemp[x.id] ? F.reemp[x.id].nombre : '' });
+      const caja = h('div', null, inp);
+      lista.append(h('div', { class: 'dia-turno' }, h('span', { class: 'fecha' }, etiquetaTurno(x)), caja));
+      selectorPersona(inp, (p) => { if (p) F.reemp[x.id] = p; else delete F.reemp[x.id]; });
     });
   }
 
-  function aplicarDefault(campo, valor) { F.dias.forEach((d) => { d[campo] = valor; }); renderDias(); }
-
+  async function cargarDevoluciones() {
+    const sel = vaciar($('fc-dev'));
+    sel.append(h('option', { value: '' }, 'Sin devolución'));
+    if (!F.con) return;
+    try { (await api('turnos/de/' + F.con.id)).turnos.filter((x) => x.estado === 'normal').forEach((x) => sel.append(h('option', { value: x.id }, etiquetaTurno(x)))); }
+    catch (e) { /* el compañero no es turnante: sin devolución posible */ }
+  }
   // ----- Resumen en vivo (simulación en el servidor) -----
   function textoFechas(dias) {
     const f = dias.map((d) => AUS.fmt(d.fecha).slice(0, 5));
@@ -202,27 +205,35 @@
   const simular = AUS.debounce(async () => {
     const box = vaciar($('f-resumen'));
     F.llenos = [];
+    F.sinSaldo = '';
     ocultarSobre();
     const j = jornada();
     if (!j || !F.tipo) return;
-    if (j === 'turnante') {
-      if (F.dias.length) box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(F.dias.length, 'turno', 'turnos')), '. Los turnantes no usan cupo; coordinación autoriza igualmente.'));
-      return;
-    }
-    if (!$('f-desde').value || (!F.persona && !(F.fuera && $('ff-rut').value.trim().length >= 8))) return;
+    const unTurno = j === 'turnante' && (T().rango === 'un_dia' || T().es_cambio_turno);
+    if (unTurno ? !$('ft-turno').value : !$('f-desde').value) return;
     const mi = ++F.seq;
     try {
       const s = await api('solicitudes/simular', { cuerpo: cuerpo() });
       if (mi !== F.seq) return;
-      $('fi-calidad').textContent = cap(s.persona.calidad);
-      box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
+      if (j === 'turnante') box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.dias.length, 'turno', 'turnos') + ': '), textoFechas(s.dias), '. Los turnantes no usan cupo; coordinación autoriza igualmente.'));
+      else box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, AUS.plural(s.habiles, 'día hábil', 'días hábiles') + ': '), textoFechas(s.dias)));
+      (s.saldo || []).forEach((x) => {
+        const nombre = x.saldo === 'FL' ? 'feriado legal' : 'administrativos';
+        if (x.insuficiente) {
+          F.sinSaldo = 'No te alcanza el saldo de ' + nombre + ' ' + x.anio + ': te quedan ' + AUS.num(x.disponible) + ' y esta solicitud usa ' + AUS.num(x.usa) + '. Habla con coordinación.';
+          box.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Saldo insuficiente. '), F.sinSaldo.replace(/^No te alcanza /, 'No alcanza ')));
+        } else {
+          box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'Saldo ' + x.saldo + ' ' + x.anio + ': '), 'usa ' + AUS.num(x.usa) + ', te quedarán ' + AUS.num(x.disponible - x.usa) + ' de ' + AUS.num(x.disponible) + '.'));
+        }
+      });
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
-      if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.'));
-      else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' (cupo diario del equipo: ' + AUS.num(s.cupo) + ').'));
+      if (j === 'turnante') return;
+      if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
+      else box.append(h('p', { class: 'nota' }, 'Uso de cupo: ' + AUS.num(s.consumo_total) + ' día(s). Cupo del equipo: ' + AUS.num(s.cupo) + ' en la mañana y ' + AUS.num(s.cupo) + ' en la tarde.'));
       if (s.dias_llenos.length) {
         F.llenos = s.dias_llenos;
         box.append(h('div', { class: 'aviso aviso-precaucion' }, h('b', null, 'Sin cupo: '),
-          s.dias_llenos.map((d) => AUS.fmt(d.fecha).slice(0, 5) + ' (' + AUS.num(d.ocupado) + ' de ' + AUS.num(d.cupo) + ')').join(', ') +
+          s.dias_llenos.map((d) => AUS.fmt(d.fecha).slice(0, 5) + ' (' + AUS.bloquesTxt(d.bloques) + ': ' + AUS.num(d.ocupado) + ' de ' + AUS.num(d.cupo) + ')').join(', ') +
           '. Puedes cambiar las fechas o enviarla igualmente como solicitud sobre cupo con una justificación.'));
         mostrarSobre();
       } else box.append(h('div', { class: 'aviso aviso-normal' }, h('b', null, 'Hay cupo disponible'), ' en esas fechas (queda pendiente de autorización).'));
@@ -233,19 +244,20 @@
 
   function cuerpo() {
     const j = jornada();
-    const b = { web: $('f-web').value, tipo: F.tipo, comentario: $('f-comentario').value.trim() };
-    if (F.persona) b.funcionario_id = F.persona.id;
-    else {
-      Object.assign(b, { nombre: $('f-nombre').value.trim(), rut: $('ff-rut').value.trim(), jornada: j, equipo_id: +$('ff-equipo').value || null, calidad: $('ff-calidad').value });
-    }
+    const b = { tipo: F.tipo, comentario: $('f-comentario').value.trim() };   // la persona la pone el servidor desde la sesión
     if (j === 'diurno') {
       b.fecha_inicio = $('f-desde').value;
-      b.fecha_fin = F.tipo === 'FL' ? ($('f-hasta').value || b.fecha_inicio) : b.fecha_inicio;
-      b.fraccion = F.tipo === 'ADM' ? F.fraccion : 'completo';
+      b.fecha_fin = T().rango === 'rango' ? ($('f-hasta').value || b.fecha_inicio) : b.fecha_inicio;
+      b.fraccion = T().medio_dia ? F.fraccion : 'completo';
     } else {
-      b.dias = F.dias.map((d) => ({ fecha: d.fecha, turno: d.turno, unidad_id: d.unidad_id, reemplazo: d.reemplazo || '' }));
-      if (F.tipo === 'ADM') b.fraccion = F.fraccion;
-      if (F.tipo === 'CT') Object.assign(b, { cambio_con: $('fc-con').value.trim(), devolucion_fecha: $('fc-fecha').value || null, devolucion_turno: $('fc-turno').value || null });
+      const tp = T();
+      if (tp.es_cambio_turno) Object.assign(b, { turno_id: +$('ft-turno').value || null, cambio_con_id: F.con ? F.con.id : null, devolucion_turno_id: +$('fc-dev').value || null });
+      else if (tp.rango === 'un_dia') Object.assign(b, { turno_id: +$('ft-turno').value || null, reemplazo_id: F.uno ? F.uno.id : null, fraccion: tp.medio_dia ? F.fraccion : 'completo' });
+      else {
+        b.fecha_inicio = $('f-desde').value;
+        b.fecha_fin = $('f-hasta').value || b.fecha_inicio;
+        b.reemplazos = Object.fromEntries(turnosEnRango().map((x) => [x.id, (F.reemp[x.id] || F.todos || {}).id || null]));
+      }
     }
     b.acepta_sobre_cupo = $('fs-acepta').checked;
     b.justificacion = $('fs-just').value.trim();
@@ -257,9 +269,11 @@
     const err = $('f-error');
     const fallo = (m) => { err.textContent = m; err.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
     err.textContent = '';
-    if (!F.persona && !F.fuera) return fallo('Elige tu nombre de la lista, o pulsa «No estoy en la lista».');
     if (!F.tipo) return fallo('Elige qué necesitas.');
-    if (!$('f-desde').value) return fallo('Indica la fecha.');
+    const unTurno = jornada() === 'turnante' && (T().rango === 'un_dia' || T().es_cambio_turno);
+    if (unTurno && !$('ft-turno').value) return fallo('Elige tu turno.');
+    if (!unTurno && !$('f-desde').value) return fallo('Indica la fecha.');
+    if (F.sinSaldo) return fallo(F.sinSaldo);
     if (F.llenos.length && !$('fs-acepta').checked) return fallo('Hay días sin cupo. Cambia las fechas o marca «Enviar igualmente como solicitud sobre cupo».');
     if ($('fs-acepta').checked && F.llenos.length && !$('fs-just').value.trim()) return fallo('Escribe la justificación para enviar sobre cupo.');
     const btn = $('f-enviar');
@@ -267,8 +281,6 @@
     try {
       const r = await api('solicitudes', { cuerpo: cuerpo() });
       ULTIMA = r;
-      CODIGO_PREFILL = F.persona ? '' : r.codigo;
-      if (F.persona) AUS.guardar('aus_persona', F.persona);
       location.hash = '#/ok';
     } catch (e) {
       if (e.data && e.data.codigo === 'sin_cupo') {
@@ -282,44 +294,26 @@
   function initForm() {
     if (initForm.hecho) return;
     initForm.hecho = true;
-    AUS.autocompletar($('f-nombre'), {
-      onPick: elegirPersona,
-      onClear: () => { if (F.persona) { F.persona = null; mostrarEl($('f-ficha'), false); renderTipos(); actualizar(); } },
-    });
-    $('f-noestoy').onclick = () => {
-      F.persona = null; F.fuera = true;
-      mostrarEl($('f-ficha'), false); mostrarEl($('f-fuera'), true);
-      refrescarEquipoFuera(); renderTipos(); actualizar();
-      $('ff-rut').focus();
-    };
-    const refrescarEquipoFuera = () => {
-      const turn = jornada() === 'turnante';
-      opcionesSelect($('ff-equipo'), CFG.equipos.filter((e) => (turn ? e.tiene_turnantes : e.tiene_diurnos)), turn ? '(Sin equipo fijo)' : null);
-    };
-    document.querySelectorAll('input[name="ff-jornada"]').forEach((r) => r.addEventListener('change', () => { refrescarEquipoFuera(); renderTipos(); actualizar(); }));
     ['f-desde', 'f-hasta'].forEach((i) => $(i).addEventListener('change', () => {
       if (i === 'f-desde' && $('f-hasta').value && $('f-hasta').value < $('f-desde').value) $('f-hasta').value = '';
       if (i === 'f-desde') $('f-hasta').min = $('f-desde').value || AUS.hoyISO();
       actualizar();
     }));
-    ['ff-rut', 'ff-equipo', 'ff-calidad'].forEach((i) => $(i).addEventListener('input', simular));
-    $('fd-turno').onchange = (e) => aplicarDefault('turno', e.target.value);
-    $('fd-unidad').onchange = (e) => aplicarDefault('unidad_id', +e.target.value || 0);
-    $('fd-reemplazo').oninput = (e) => aplicarDefault('reemplazo', e.target.value);
-    AUS.datalistNomina($('fd-reemplazo'));
-    AUS.datalistNomina($('fc-con'));
+    $('ft-turno').onchange = () => simular();
+    $('fc-dev').onchange = () => simular();
+    selectorPersona($('ft-reemp'), (p) => { F.uno = p; });
+    selectorPersona($('ft-todos'), (p) => { F.todos = p; pintarTurnante(false); });
+    selectorPersona($('fc-con'), (p) => { F.con = p; cargarDevoluciones(); });
     $('fs-acepta').onchange = () => mostrarEl($('fs-wj'), $('fs-acepta').checked);
     $('form').addEventListener('submit', enviar);
   }
 
-  function abrirForm(q) {
+  async function abrirForm(q) {
     initForm();
+    if (SES.persona.jornada === 'turnante') await cargarMisTurnos();
     resetForm();
     const fecha = q.get('fecha');
-    if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha >= AUS.hoyISO()) $('f-desde').value = fecha;
-    const p = AUS.leer('aus_persona', null);
-    if (p && p.id) { elegirPersona(p); }
-    setTimeout(() => { if (!F.persona) $('f-nombre').focus(); }, 50);
+    if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha >= AUS.hoyISO()) { $('f-desde').value = fecha; actualizar(); }
   }
 
   // ═══════════ Confirmación ═══════════
@@ -336,43 +330,21 @@
     );
   }
 
-  // ═══════════ Mis solicitudes ═══════════
-  const M = { init: false };
-
-  function abrirMis() {
-    if (!M.init) {
-      M.init = true;
-      AUS.autocompletar($('m-q'), { onPick: (p) => { AUS.guardar('aus_persona', p); cargarPersona(p); }, onClear: () => {} });
-      $('m-form').addEventListener('submit', (ev) => {
-        ev.preventDefault();
-        const q = $('m-q').value.trim();
-        if (/^AUS-\d{4}-\d{1,6}$/i.test(q)) cargarLista({ codigo: q.toUpperCase() });
-        else { const p = AUS.leer('aus_persona', null); if (p && p.nombre === q) cargarPersona(p); else $('m-error').textContent = 'Elige tu nombre de la lista que aparece al escribir, o escribe tu código (AUS-2026-0001).'; }
-      });
-    }
-    $('m-error').textContent = '';
-    vaciar($('m-lista'));
-    if (CODIGO_PREFILL) { $('m-q').value = CODIGO_PREFILL; cargarLista({ codigo: CODIGO_PREFILL }); CODIGO_PREFILL = ''; return; }
-    const p = AUS.leer('aus_persona', null);
-    if (p && p.id) { $('m-q').value = p.nombre; cargarPersona(p); }
-  }
-
-  const cargarPersona = (p) => cargarLista({ funcionario_id: p.id });
-
-  async function cargarLista(params) {
+  // ═══════════ Mis solicitudes (solo las propias: el servidor filtra por la sesión) ═══════════
+  async function abrirMis() {
     $('m-error').textContent = '';
     const cont = vaciar($('m-lista'));
     try {
-      const r = await api('solicitudes', { params });
-      if (!r.solicitudes.length) { cont.append(h('p', { class: 'aviso aviso-info' }, 'No encontramos solicitudes.')); return; }
-      r.solicitudes.forEach((s) => cont.append(tarjetaSol(s, () => cargarLista(params))));
+      const r = await api('solicitudes');
+      if (!r.solicitudes.length) { cont.append(h('p', { class: 'aviso aviso-info' }, 'Aún no tienes solicitudes. Usa «Pedir días» para crear una.')); return; }
+      r.solicitudes.forEach((s) => cont.append(tarjetaSol(s, abrirMis)));
     } catch (e) { $('m-error').textContent = e.message; }
   }
 
   function tarjetaSol(s, recargar) {
     const fechas = s.fecha_inicio === s.fecha_fin ? AUS.fmt(s.fecha_inicio) : AUS.fmt(s.fecha_inicio) + ' al ' + AUS.fmt(s.fecha_fin);
     const card = h('article', { class: 'sol' },
-      h('div', { class: 'sol-cab' }, h('span', { class: 'cod' }, s.codigo), AUS.chip(AUS.tipoTxt(s.tipo, s.fraccion), 'chip-neutro'), AUS.estadoChip(s.estado), s.sobre_cupo ? AUS.chip('Sobre cupo', 'chip-precaucion') : null),
+      h('div', { class: 'sol-cab' }, h('span', { class: 'cod' }, s.codigo), AUS.chip(AUS.tipoTxt(s.tipo, s.fraccion, s.etiqueta), 'chip-neutro'), AUS.estadoChip(s.estado), s.sobre_cupo ? AUS.chip('Sobre cupo', 'chip-precaucion') : null),
       h('div', null, h('strong', null, s.nombre), ' · ' + fechas + (s.turno ? ' · turno ' + s.turno : '')));
     if (s.estado === 'rechazada') card.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Motivo del rechazo: '), s.motivo || 'No se indicó motivo.'));
     if (s.estado === 'autorizada') card.append(h('div', { class: 'aviso aviso-normal' }, h('b', null, 'Autorizada.')));
@@ -381,16 +353,15 @@
       const zona = h('div');
       const abrir = h('button', { type: 'button', class: 'btn btn-peligro btn-chico', onclick: () => {
         abrir.classList.add('oculto');
-        const rut = h('input', { class: 'input', type: 'text', placeholder: 'Tu RUT (12.345.678-5)', 'aria-label': 'Tu RUT para confirmar', autocomplete: 'off' });
         const msg = h('p', { class: 'msg-error', role: 'alert' });
-        const ok = h('button', { type: 'submit', class: 'btn btn-peligro btn-chico' }, 'Confirmar anulación');
-        const f = h('form', { class: 'fila', onsubmit: async (ev) => {
-          ev.preventDefault(); msg.textContent = ''; ok.disabled = true;
-          try { await api('solicitudes/' + s.id + '/anular', { cuerpo: { rut: rut.value } }); AUS.toast('Solicitud anulada'); recargar(); }
+        const ok = h('button', { type: 'button', class: 'btn btn-peligro btn-chico', onclick: async () => {
+          msg.textContent = ''; ok.disabled = true;
+          try { await api('solicitudes/' + s.id + '/anular', { cuerpo: {} }); AUS.toast('Solicitud anulada'); recargar(); }
           catch (e) { msg.textContent = e.message; ok.disabled = false; }
-        } }, rut, ok, h('button', { type: 'button', class: 'btn btn-chico', onclick: () => { vaciar(zona); zona.append(abrir); abrir.classList.remove('oculto'); } }, 'Cancelar'));
-        zona.append(f, msg);
-        rut.focus();
+        } }, 'Sí, anular ' + s.codigo);
+        zona.append(h('div', { class: 'fila' }, h('span', null, '¿Anular esta solicitud?'), ok,
+          h('button', { type: 'button', class: 'btn btn-chico', onclick: () => { vaciar(zona); zona.append(abrir); abrir.classList.remove('oculto'); } }, 'No')), msg);
+        ok.focus();
       } }, 'Anular');
       zona.append(abrir);
       card.append(zona, h('p', { class: 'nota' }, 'Se puede anular hasta las 23:59 del día anterior a la primera fecha.'));
@@ -398,41 +369,191 @@
     return card;
   }
 
+  // ═══════════ Mis turnos ═══════════
+  const ESTADO_TURNO = { normal: null, cubierto: ['Te cubren', 'chip-normal'], sin_cubrir: ['Ausente', 'chip-info'], cambio: ['Por cambio', 'chip-info'] };
+  async function abrirTurnos() {
+    $('t-error').textContent = '';
+    const mios = vaciar($('t-mios')), cubro = vaciar($('t-cubro'));
+    try {
+      const r = await api('turnos/mios');
+      mios.append(h('h2', null, 'Mis próximos turnos'));
+      if (!r.turnos.length) mios.append(h('p', { class: 'nota' }, SES.persona.jornada === 'turnante' ? 'No tienes turnos cargados desde hoy. Si falta alguno, avisa a coordinación.' : 'Los diurnos no tienen turnos propios; aquí verás los turnos que cubras.'));
+      else mios.append(h('ul', { class: 'lista' }, r.turnos.map((x) => {
+        const e = ESTADO_TURNO[x.estado];
+        return h('li', null, h('strong', null, AUS.fmtLargo(x.fecha)), ' · ' + cap(x.tipo) + ' · ' + x.unidad, e ? AUS.chip(e[0], e[1]) : null,
+          !e && x.en_solicitud ? AUS.chip('En ' + x.en_solicitud, 'chip-info') : null,
+          x.cubierto_por ? h('span', { class: 'nota' }, 'Cubre: ' + x.cubierto_por) : null);
+      })));
+      cubro.append(h('h2', null, 'Turnos que cubro'));
+      if (!r.cubro.length) cubro.append(h('p', { class: 'nota' }, 'No tienes turnos por cubrir.'));
+      else cubro.append(h('ul', { class: 'lista' }, r.cubro.map((x) => h('li', null, h('strong', null, AUS.fmtLargo(x.fecha)), ' · ' + cap(x.tipo) + ' · ' + x.unidad,
+        h('span', { class: 'nota' }, 'en lugar de ' + x.titular), x.cubierto_extra ? AUS.chip('Extra', 'chip-precaucion') : null))));
+    } catch (e) { $('t-error').textContent = e.message; }
+  }
+
+  // ═══════════ Mi perfil ═══════════
+  function fechaHora(s) { return AUS.fmt(s.slice(0, 10)) + ' ' + s.slice(11, 16); }
+  function dispositivo(ua) {
+    ua = ua || '';
+    const so = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Windows/i.test(ua) ? 'Windows' : /Mac/i.test(ua) ? 'Mac' : 'Otro equipo';
+    const nav = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'navegador';
+    return so + ' · ' + nav;
+  }
+
+  async function abrirPerfil() {
+    const p = SES.persona;
+    vaciar($('p-ficha')).append(
+      h('div', null, h('dt', null, 'Nombre'), h('dd', null, p.nombre)),
+      h('div', null, h('dt', null, 'Jornada'), h('dd', null, cap(p.jornada))),
+      h('div', null, h('dt', null, 'Equipo'), h('dd', null, p.equipo || '—')),
+      h('div', null, h('dt', null, 'Calidad'), h('dd', null, cap(p.calidad))),
+      h('div', null, h('dt', null, 'Rol'), h('dd', null, p.rol === 'coordinacion' ? 'Coordinación' : 'Funcionario')));
+    const caja = vaciar($('p-saldos'));
+    try {
+      const r = await api('saldos/mios');
+      caja.append(h('h2', null, 'Mis saldos ' + r.anio));
+      const fila = h('div', { class: 'dos-col' });
+      [['FL', 'Feriado legal'], ['ADM', 'Administrativos']].forEach(([k, n]) => {
+        const x = r.saldos[k];
+        // MetricCard de Vital: número grande = lo que queda; el pie explica de dónde sale.
+        fila.append(h('section', { class: 'vt-metric', 'aria-label': n + ': ' + AUS.num(x.disponible) + ' días disponibles' },
+          h('div', { class: 'vt-metric__head' }, h('span', { class: 'vt-metric__label' }, n + ' (' + k + ')')),
+          h('div', { class: 'vt-metric__value' }, h('span', { class: 'vt-metric__num' }, AUS.num(x.disponible)), h('span', { class: 'vt-metric__unit' }, 'días disponibles')),
+          h('div', { class: 'vt-metric__foot' }, h('span', { class: 'meta' }, 'De ' + AUS.num(x.asignado + x.ajustes) + (x.ajustes ? ' (incluye ajuste ' + (x.ajustes > 0 ? '+' : '') + AUS.num(x.ajustes) + ')' : '') +
+            ' · usados ' + AUS.num(x.autorizado) + ' · pendientes ' + AUS.num(x.pendiente)))));
+      });
+      caja.append(fila, h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
+      r.ajustes.forEach((a) => caja.append(h('p', { class: 'meta' }, 'Ajuste ' + a.saldo + ' ' + (a.dias > 0 ? '+' : '') + AUS.num(a.dias) + ': ' + a.motivo)));
+    } catch (e) { caja.append(h('p', { class: 'msg-error' }, e.message)); }
+    const ul = vaciar($('p-sesiones'));
+    try {
+      const r = await api('auth/sesiones');
+      r.sesiones.forEach((x) => ul.append(h('li', null,
+        h('span', null, h('strong', null, dispositivo(x.user_agent)), x.compartido ? ' · computador compartido' : '', h('br'),
+          h('span', { class: 'meta' }, 'Último uso: ' + fechaHora(x.ultimo_uso))),
+        h('span', { class: 'espacio' }),
+        x.actual ? AUS.chip('Este dispositivo', 'chip-info')
+          : h('button', { type: 'button', class: 'btn btn-chico', onclick: async () => { await api('auth/sesiones/' + x.id + '/cerrar', { cuerpo: {} }); AUS.toast('Sesión cerrada'); abrirPerfil(); } }, 'Cerrar'))));
+    } catch (e) { ul.append(h('li', { class: 'msg-error' }, e.message)); }
+  }
+
+  function initPerfil() {
+    if (initPerfil.hecho) return;
+    initPerfil.hecho = true;
+    $('p-pin').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      $('p-error').textContent = '';
+      try {
+        await api('auth/pin', { cuerpo: { actual: $('p-actual').value, nuevo: $('p-nuevo').value } });
+        $('p-actual').value = ''; $('p-nuevo').value = '';
+        AUS.toast('PIN cambiado');
+      } catch (e) { $('p-error').textContent = e.message; }
+    });
+    $('p-otras').onclick = async () => { const r = await api('auth/sesiones/cerrar-otras', { cuerpo: {} }); AUS.toast(AUS.plural(r.cerradas, 'sesión cerrada', 'sesiones cerradas')); abrirPerfil(); };
+    $('p-salir').onclick = async () => { try { await api('auth/salir', { cuerpo: {} }); } catch (e) { /* ya no había sesión */ } salir(''); };
+  }
+
+  // ═══════════ Ingreso / activación ═══════════
+  const modoIngreso = () => document.querySelector('input[name="i-modo"]:checked').value;
+
+  function pintarModo() {
+    const act = modoIngreso() === 'activar';
+    mostrarEl($('i-w-codigo'), act); mostrarEl($('i-w-pin2'), act); mostrarEl($('i-ayuda-activar'), act);
+    $('i-l-pin').textContent = act ? 'Crea tu PIN (6 números)' : 'PIN (6 números)';
+    $('i-pin').autocomplete = act ? 'new-password' : 'current-password';
+    $('i-enviar').textContent = act ? 'Activar y entrar' : 'Ingresar';
+    $('i-error').textContent = '';
+  }
+
+  function mostrarIngreso(msg) {
+    SES = null; AUS.csrf = null;
+    mostrarEl($('barra'), false); mostrarEl($('nav'), false);
+    document.body.classList.remove('con-barra-abajo');
+    document.querySelectorAll('main > section').forEach((s) => mostrarEl(s, false));
+    mostrarEl($('v-ingreso'), true);
+    $('i-error').textContent = msg || '';
+    $('i-pin').value = ''; $('i-pin2').value = '';
+    if (!initIngreso.hecho) initIngreso();
+    setTimeout(() => ($('i-rut').value ? $('i-pin') : $('i-rut')).focus(), 50);
+  }
+
+  function initIngreso() {
+    initIngreso.hecho = true;
+    document.querySelectorAll('input[name="i-modo"]').forEach((r) => r.addEventListener('change', pintarModo));
+    if (/activar/.test(location.hash)) { document.querySelector('input[name="i-modo"][value="activar"]').checked = true; }
+    pintarModo();
+    $('i-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const err = $('i-error');
+      err.textContent = '';
+      const act = modoIngreso() === 'activar';
+      const pin = $('i-pin').value.trim();
+      if (!/^\d{6}$/.test(pin)) { err.textContent = 'El PIN debe tener exactamente 6 números.'; return; }
+      if (act && pin !== $('i-pin2').value.trim()) { err.textContent = 'Los dos PIN no coinciden.'; return; }
+      const cuerpo = { rut: $('i-rut').value.trim(), pin, compartido: $('i-compartido').checked };
+      if (act) cuerpo.codigo = $('i-codigo').value.trim();
+      $('i-enviar').disabled = true;
+      try {
+        const r = await api(act ? 'auth/activar' : 'auth/ingresar', { cuerpo });
+        await entrar(r);
+      } catch (e) { err.textContent = e.message; }
+      finally { $('i-enviar').disabled = false; }
+    });
+  }
+
+  function salir(msg) { mostrarIngreso(msg); history.replaceState(null, '', location.pathname + location.search); }
+
   // ═══════════ Ruteo ═══════════
   function mostrar() {
-    if (!CFG) return;
+    if (!CFG || !SES) return;
     const [path, qs] = (location.hash || '#/').slice(1).split('?');
     const q = new URLSearchParams(qs || '');
-    ['cal', 'pedir', 'ok', 'mis'].forEach((v) => mostrarEl($('v-' + v), false));
+    document.querySelectorAll('main > section').forEach((s) => mostrarEl(s, false));
     let vista = 'cal';
     if (path === '/pedir') vista = 'pedir';
     else if (path === '/mis') vista = 'mis';
+    else if (path === '/perfil') vista = 'perfil';
+    else if (path === '/turnos') vista = 'turnos';
     else if (path === '/ok' && ULTIMA) vista = 'ok';
     mostrarEl($('v-' + vista), true);
-    $('nav-cal').toggleAttribute('aria-current', false);
-    $('nav-mis').toggleAttribute('aria-current', false);
-    if (vista === 'cal') $('nav-cal').setAttribute('aria-current', 'page');
-    if (vista === 'mis') $('nav-mis').setAttribute('aria-current', 'page');
+    ['cal', 'mis', 'turnos', 'perfil'].forEach((v) => $('nav-' + v).toggleAttribute('aria-current', false));
+    if (['cal', 'mis', 'turnos', 'perfil'].includes(vista)) $('nav-' + vista).setAttribute('aria-current', 'page');
     if (vista === 'cal') abrirCal();
     else if (vista === 'pedir') abrirForm(q);
     else if (vista === 'mis') abrirMis();
+    else if (vista === 'perfil') { initPerfil(); abrirPerfil(); }
+    else if (vista === 'turnos') abrirTurnos();
     else abrirOk();
     window.scrollTo(0, 0);
   }
 
-  async function iniciar() {
-    try {
+  async function entrar(sesion) {
+    SES = { persona: sesion.persona, compartido: sesion.compartido };
+    AUS.csrf = sesion.csrf;
+    if (!CFG) {
       CFG = await api('config');
+      AUS.hoy = CFG.hoy;
+      $('titulo').textContent = CFG.titulo;
+      document.title = CFG.titulo;
+      if (CFG.logo) { const l = $('logo'); l.src = CFG.logo; mostrarEl(l, true); }
+    }
+    mostrarEl($('v-ingreso'), false);
+    mostrarEl($('barra'), true); mostrarEl($('nav'), true);
+    document.body.classList.add('con-barra-abajo');
+    mostrarEl($('nav-coord'), SES.persona.rol === 'coordinacion');
+    mostrar();
+  }
+
+  async function iniciar() {
+    window.addEventListener('hashchange', mostrar);
+    // Si una petición descubre que la sesión terminó (venció o la cerraron), se vuelve a la pantalla de ingreso.
+    window.addEventListener('aus:sin-sesion', () => salir('Tu sesión terminó. Ingresa de nuevo con tu RUT y PIN.'));
+    try {
+      const s = await api('auth/sesion');
+      if (s.autenticado) await entrar(s); else mostrarIngreso('');
     } catch (e) {
       $('main').prepend(h('p', { class: 'aviso aviso-critico', role: 'alert' }, e.message));
-      return;
     }
-    AUS.hoy = CFG.hoy;
-    $('titulo').textContent = CFG.titulo;
-    document.title = CFG.titulo;
-    if (CFG.logo) { const l = $('logo'); l.src = CFG.logo; mostrarEl(l, true); }
-    window.addEventListener('hashchange', mostrar);
-    mostrar();
   }
   iniciar();
 })();

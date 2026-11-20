@@ -13,3 +13,7 @@ nomina-hpm.csv
 iniciar-local.bat
 .claude/
 ausentismos-subir.zip
+
+# Códigos de activación generados por herramientas/carga-inicial.php (se guardan fuera de la app; esto es solo un seguro)
+codigos-*.csv
+*.antes-carga-*.sqlite

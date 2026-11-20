@@ -1,5 +1,5 @@
-nombre,rut,jornada,equipo,calidad
-Camila Alarcón Soto,12345678-5,diurno,H7,titular
-Javiera Barría Ríos,13456789-9,diurno,H6,contrata
-Felipe Espinoza Oyarzún,16789012-1,turnante,H7,titular
-Sebastián Gallardo Navarro,18901234-9,turnante,,contrata
+nombre,rut,jornada,equipo,calidad,telefono
+Camila Alarcón Soto,12345678-5,diurno,H7,titular,9 1234 5678
+Javiera Barría Ríos,13456789-9,diurno,H6,contrata,
+Felipe Espinoza Oyarzún,16789012-1,turnante,H7,titular,
+Sebastián Gallardo Navarro,18901234-9,turnante,,contrata,

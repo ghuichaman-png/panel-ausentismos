@@ -5,26 +5,54 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Ausentismos · Kinesiología HPM</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Outfit:wght@600&display=swap">
+  <meta name="theme-color" content="#f4f7f6">
+  <link rel="stylesheet" href="assets/vital/tokens.css">
+  <link rel="stylesheet" href="assets/vital/bundle.css">
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-<header class="barra">
-  <div class="barra-in">
-    <img id="logo" class="oculto" alt="">
-    <h1 id="titulo">Ausentismos · Kinesiología HPM</h1>
-    <a class="btn btn-primario btn-grande" href="#/pedir">Pedir días</a>
+<header class="vt-nav oculto" id="barra">
+  <div class="vt-nav__inner">
+    <a class="vt-nav__brand" href="#/"><img id="logo" class="oculto" alt="" height="22"><span id="titulo">Ausentismos · Kinesiología HPM</span></a>
+    <div class="vt-nav__actions"><a class="btn btn-primario" href="#/pedir">Pedir días</a></div>
   </div>
 </header>
-<nav class="nav" aria-label="Secciones">
+<nav class="ap-tabs ap-abajo oculto" aria-label="Secciones" id="nav">
   <a href="#/" id="nav-cal">Calendario</a>
   <a href="#/mis" id="nav-mis">Mis solicitudes</a>
+  <a href="#/turnos" id="nav-turnos">Mis turnos</a>
+  <a href="#/perfil" id="nav-perfil">Mi perfil</a>
+  <a href="coordinacion/" id="nav-coord" class="oculto">Coordinación</a>
 </nav>
 
 <main id="main" tabindex="-1">
   <noscript><p class="aviso aviso-critico">Esta página necesita JavaScript.</p></noscript>
+
+  <!-- Ingreso / activación -->
+  <section id="v-ingreso" class="vista oculto login" aria-labelledby="h-ingreso">
+    <h1 id="h-ingreso">Ausentismos · Kinesiología HPM</h1>
+    <fieldset><legend class="solo-lector">Cómo entrar</legend>
+      <div class="opciones">
+        <label class="opcion"><input type="radio" name="i-modo" value="ingresar" checked><span>Ingresar</span></label>
+        <label class="opcion"><input type="radio" name="i-modo" value="activar"><span>Activar con código</span></label>
+      </div>
+    </fieldset>
+    <form id="i-form" class="tarjeta" novalidate>
+      <label class="campo"><span>RUT</span><input id="i-rut" type="text" autocomplete="username" placeholder="12.345.678-5" required></label>
+      <label class="campo oculto" id="i-w-codigo"><span>Código de activación</span>
+        <input id="i-codigo" type="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH" maxlength="9"></label>
+      <label class="campo"><span id="i-l-pin">PIN (6 números)</span>
+        <input id="i-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password" required></label>
+      <label class="campo oculto" id="i-w-pin2"><span>Repite el PIN</span>
+        <input id="i-pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password"></label>
+      <p class="ayuda oculto" id="i-ayuda-activar">Coordinación te entrega el código. Elige un PIN de 6 números que no sea fácil de adivinar (ni 123456 ni parte de tu RUT).</p>
+      <label class="check"><input type="checkbox" id="i-compartido"><span>Este es un computador compartido</span></label>
+      <p class="ayuda">En un computador compartido la sesión se cierra sola tras 30 minutos sin uso. En tu celular queda abierta.</p>
+      <p id="i-error" class="msg-error" role="alert"></p>
+      <button type="submit" class="btn btn-primario btn-grande" id="i-enviar">Ingresar</button>
+    </form>
+    <p class="nota">¿Olvidaste tu PIN? Pide un código nuevo a coordinación.</p>
+  </section>
 
   <!-- Calendario -->
   <section id="v-cal" class="vista oculto" aria-label="Calendario">
@@ -33,9 +61,16 @@
       <h2 id="c-titulo" aria-live="polite"></h2>
       <button type="button" class="btn" id="c-sig" aria-label="Mes siguiente">›</button>
       <button type="button" class="btn" id="c-hoy">Hoy</button>
-      <label class="solo-lector" for="c-vista">Ver</label>
+    </div>
+    <div class="cal-vista">
+      <div class="opciones" role="radiogroup" aria-label="Qué ver" id="c-modo">
+        <label class="opcion"><input type="radio" name="c-modo" value="equipo"><span>Equipo</span></label>
+        <label class="opcion"><input type="radio" name="c-modo" value="todos"><span>Todos</span></label>
+        <label class="opcion"><input type="radio" name="c-modo" value="turn"><span>Turnantes</span></label>
+      </div>
+      <label class="solo-lector" for="c-vista">Equipo</label>
       <select id="c-vista"></select>
-      <button type="button" class="btn no-imprimir" id="c-imprimir">Imprimir</button>
+      <button type="button" class="btn btn-chico no-imprimir" id="c-imprimir">Imprimir</button>
     </div>
     <div id="c-error" class="msg-error" role="alert"></div>
     <div id="c-leyenda"></div>
@@ -47,34 +82,11 @@
   <section id="v-pedir" class="vista oculto" aria-labelledby="h-pedir">
     <h1 id="h-pedir">Pedir días</h1>
     <form id="form" novalidate>
-      <div class="hp" aria-hidden="true"><label>No completar<input type="text" id="f-web" tabindex="-1" autocomplete="off"></label></div>
-
-      <label class="campo"><span>Tu nombre</span>
-        <div><input id="f-nombre" type="text" placeholder="Escribe tu nombre o apellido" required></div>
-        <p class="ayuda">Elige tu nombre de la lista. <button type="button" class="btn btn-chico" id="f-noestoy">No estoy en la lista</button></p>
-      </label>
-
-      <dl class="lectura oculto" id="f-ficha">
+      <dl class="lectura" id="f-ficha">
+        <div><dt>Nombre</dt><dd id="fi-nombre"></dd></div>
         <div><dt>Jornada</dt><dd id="fi-jornada"></dd></div>
         <div><dt>Equipo</dt><dd id="fi-equipo"></dd></div>
-        <div><dt>Calidad</dt><dd id="fi-calidad">—</dd></div>
       </dl>
-
-      <div id="f-fuera" class="tarjeta oculto">
-        <h3>Tus datos (no apareces en la nómina)</h3>
-        <label class="campo"><span>RUT</span><input id="ff-rut" type="text" inputmode="text" placeholder="12.345.678-5" autocomplete="off"></label>
-        <fieldset><legend>Jornada</legend>
-          <div class="opciones">
-            <label class="opcion"><input type="radio" name="ff-jornada" value="diurno" checked><span>Diurno</span></label>
-            <label class="opcion"><input type="radio" name="ff-jornada" value="turnante"><span>Turnante</span></label>
-          </div></fieldset>
-        <div class="dos-col">
-          <label class="campo"><span>Equipo</span><select id="ff-equipo"></select></label>
-          <label class="campo"><span>Calidad</span>
-            <select id="ff-calidad"><option value="titular">Titular</option><option value="contrata">Contrata</option><option value="honorarios">Honorarios</option></select></label>
-        </div>
-        <p class="ayuda">Coordinación revisará tus datos y podrá vincularte a la nómina.</p>
-      </div>
 
       <fieldset id="f-tipo-box" class="oculto"><legend>¿Qué necesitas?</legend><div class="opciones" id="f-tipos"></div></fieldset>
 
@@ -87,34 +99,26 @@
       </div>
 
       <div id="f-turn" class="oculto">
-        <div id="f-defaults" class="tarjeta">
-          <h3>Para todos los días</h3>
-          <div class="dos-col">
-            <label class="campo"><span>Turno</span><select id="fd-turno"><option value="largo">Largo</option><option value="noche">Noche (fecha en que comienza)</option></select></label>
-            <label class="campo"><span>Unidad del turno</span><select id="fd-unidad"></select></label>
-          </div>
-          <label class="campo"><span>¿Quién cubre tu turno?</span><input id="fd-reemplazo" type="text" maxlength="120" placeholder="Nombre de quien te cubre"></label>
-          <p class="ayuda">Puedes ajustar cada día abajo.</p>
-        </div>
-        <div id="f-dias" class="dias-turno"></div>
+        <label class="campo oculto" id="ft-w-turno"><span>Tu turno</span><select id="ft-turno"></select></label>
+        <div class="campo oculto" id="ft-w-reemp"><span>¿Quién cubre tu turno?</span><div><input id="ft-reemp" type="text" placeholder="Escribe un nombre de la nómina"></div></div>
+        <div class="campo oculto" id="ft-w-todos"><span>¿Quién cubre tus turnos?</span><div><input id="ft-todos" type="text" placeholder="Escribe un nombre de la nómina"></div>
+          <p class="ayuda">Se aplica a todos tus turnos de esas fechas; abajo puedes elegir otra persona para alguno.</p></div>
+        <div id="ft-lista" class="dias-turno"></div>
+        <p id="ft-vacio" class="aviso aviso-info oculto"></p>
       </div>
 
       <div id="f-ct" class="tarjeta oculto">
         <h3>Cambio de turno</h3>
-        <label class="campo"><span>¿Con quién cambias?</span><input id="fc-con" type="text" maxlength="120" placeholder="Nombre de la persona"></label>
-        <p class="etiqueta">Devolución (opcional)</p>
-        <div class="dos-col">
-          <label class="campo"><span>Fecha de devolución</span><input type="date" id="fc-fecha"></label>
-          <label class="campo"><span>Turno de devolución</span><select id="fc-turno"><option value="">—</option><option value="largo">Largo</option><option value="noche">Noche</option></select></label>
-        </div>
+        <div class="campo"><span>¿Con quién cambias?</span><div><input id="fc-con" type="text" placeholder="Escribe un nombre de la nómina"></div>
+          <p class="ayuda">Conversa antes el cambio con tu compañero: coordinación solo lo autoriza.</p></div>
+        <label class="campo"><span>Turno de devolución (opcional)</span><select id="fc-dev"><option value="">Sin devolución</option></select></label>
       </div>
-
       <label class="campo oculto" id="w-comentario"><span>Comentario (opcional)</span><textarea id="f-comentario" maxlength="500"></textarea></label>
 
       <div id="f-resumen" class="vista" aria-live="polite"></div>
 
       <div id="f-sobre" class="tarjeta oculto">
-        <label class="opcion"><input type="checkbox" id="fs-acepta"><span>Enviar igualmente como solicitud sobre cupo</span></label>
+        <label class="check"><input type="checkbox" id="fs-acepta"><span>Enviar igualmente como solicitud sobre cupo</span></label>
         <label class="campo oculto" id="fs-wj"><span>Justificación (obligatoria)</span><textarea id="fs-just" maxlength="1000" placeholder="Explica por qué se necesita este día"></textarea></label>
       </div>
 
@@ -130,19 +134,44 @@
   <section id="v-ok" class="vista oculto" aria-labelledby="h-ok">
     <h1 id="h-ok">¡Solicitud enviada!</h1>
     <div class="tarjeta" id="ok-caja"></div>
-    <div class="fila"><a class="btn btn-primario" href="#/mis" id="ok-mis">Ver mis solicitudes</a><a class="btn" href="#/">Volver al calendario</a></div>
+    <div class="fila"><a class="btn btn-primario" href="#/mis">Ver mis solicitudes</a><a class="btn" href="#/">Volver al calendario</a></div>
   </section>
 
   <!-- Mis solicitudes -->
   <section id="v-mis" class="vista oculto" aria-labelledby="h-mis">
     <h1 id="h-mis">Mis solicitudes</h1>
-    <form id="m-form" novalidate>
-      <label class="campo"><span>Tu nombre o el código de tu solicitud</span>
-        <div><input id="m-q" type="text" placeholder="Nombre, o AUS-2026-0001"></div></label>
-      <button type="submit" class="btn">Buscar</button>
-    </form>
     <p id="m-error" class="msg-error" role="alert"></p>
     <div id="m-lista" class="vista"></div>
+  </section>
+
+  <!-- Mis turnos -->
+  <section id="v-turnos" class="vista oculto" aria-labelledby="h-turnos">
+    <h1 id="h-turnos">Mis turnos</h1>
+    <p id="t-error" class="msg-error" role="alert"></p>
+    <div id="t-mios" class="vista"></div>
+    <div id="t-cubro" class="vista"></div>
+  </section>
+
+  <!-- Mi perfil -->
+  <section id="v-perfil" class="vista oculto" aria-labelledby="h-perfil">
+    <h1 id="h-perfil">Mi perfil</h1>
+    <dl class="lectura" id="p-ficha"></dl>
+    <div id="p-saldos" class="tarjeta vista"></div>
+    <form id="p-pin" class="tarjeta" novalidate>
+      <h2>Cambiar PIN</h2>
+      <div class="dos-col">
+        <label class="campo"><span>PIN actual</span><input id="p-actual" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="current-password"></label>
+        <label class="campo"><span>PIN nuevo</span><input id="p-nuevo" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password"></label>
+      </div>
+      <p id="p-error" class="msg-error" role="alert"></p>
+      <button type="submit" class="btn">Cambiar PIN</button>
+    </form>
+    <div class="tarjeta">
+      <h2>Dónde tienes la sesión abierta</h2>
+      <ul class="lista" id="p-sesiones"></ul>
+      <div class="acciones"><button type="button" class="btn btn-chico" id="p-otras">Cerrar las demás sesiones</button></div>
+    </div>
+    <button type="button" class="btn btn-peligro" id="p-salir">Cerrar sesión en este dispositivo</button>
   </section>
 </main>
 <script src="assets/common.js"></script>

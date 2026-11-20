@@ -2,6 +2,17 @@
 (function () {
   'use strict';
   const AUS = (window.AUS = {});
+
+  // Tema oscuro automático (SPEC-v2 §8.2): Vital trae los valores en [data-theme="dark"].
+  const temaOscuro = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const aplicarTema = () => {
+    const oscuro = !!(temaOscuro && temaOscuro.matches);
+    document.documentElement.dataset.theme = oscuro ? 'dark' : 'light';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = oscuro ? '#0b1211' : '#f4f7f6';
+  };
+  aplicarTema();
+  if (temaOscuro && temaOscuro.addEventListener) temaOscuro.addEventListener('change', aplicarTema);
   AUS.base = document.documentElement.dataset.base || '';
   AUS.csrf = null;
   AUS.hoy = null;
@@ -22,6 +33,8 @@
     if (!resp.ok) {
       const er = new Error((data && data.error) || 'Ocurrió un error. Intenta de nuevo.');
       er.status = resp.status; er.data = data || {};
+      // La sesión terminó (venció, la cerraron o se generó un código nuevo): la app vuelve a la pantalla de ingreso.
+      if (er.data.codigo === 'sin_sesion' && !ruta.startsWith('auth/')) window.dispatchEvent(new CustomEvent('aus:sin-sesion'));
       throw er;
     }
     return data;
@@ -74,12 +87,12 @@
   AUS.num = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
   AUS.plural = (n, s, p) => n + ' ' + (n === 1 ? s : p);
 
-  AUS.tipoTxt = function (tipo, fr) {
-    if (tipo === 'FL') return 'FL';
-    if (tipo === 'CT') return 'CT';
-    return { am: 'ADM ½ AM', pm: 'ADM ½ PM', primera_mitad: 'ADM ½ 1.ª mitad', segunda_mitad: 'ADM ½ 2.ª mitad' }[fr] || 'ADM';
+  // Texto corto de un tipo: su etiqueta pública (o la sigla) más la fracción si es medio día.
+  AUS.tipoTxt = function (tipo, fr, etiqueta) {
+    const base = etiqueta || tipo;
+    const media = { am: ' ½ AM', pm: ' ½ PM', primera_mitad: ' ½ 1.ª mitad', segunda_mitad: ' ½ 2.ª mitad' }[fr];
+    return base + (media || '');
   };
-  AUS.tipoLargo = { FL: 'Feriado legal', ADM: 'Permiso administrativo', CT: 'Cambio de turno' };
   AUS.estadoChip = function (estado) {
     const m = { pendiente: ['chip-info', 'Pendiente'], autorizada: ['chip-normal', 'Autorizada'], rechazada: ['chip-critico', 'Rechazada'], anulada: ['chip-neutro', 'Anulada'] }[estado] || ['chip-neutro', estado];
     return AUS.h('span', { class: 'chip ' + m[0] }, m[1]);
@@ -156,15 +169,24 @@
     return m;
   };
   AUS.equipoPorId = (data, id) => data.equipos.find((e) => e.id === id);
+  // Ocupación de un equipo en un día, por bloque (SPEC-v2 §4.2). total = el bloque más ocupado.
   AUS.ocupacion = function (lista, equipoId) {
-    let pend = 0, aut = 0, ceros = 0;
+    let am = 0, pm = 0, pend = 0, ceros = 0;
     lista.forEach((a) => {
       if (a.jornada !== 'diurno' || a.equipo_id !== equipoId) return;
       if (a.consumo <= 0) ceros++;
-      if (a.estado === 'pendiente') pend += a.consumo; else aut += a.consumo;
+      am += a.am || 0; pm += a.pm || 0;
+      if (a.estado === 'pendiente') pend += (a.am || 0) + (a.pm || 0);
     });
-    return { total: pend + aut, pend, aut, ceros };
+    return { am, pm, total: Math.max(am, pm), pend, ceros };
   };
+  // Texto de ocupación por bloque: «1 de 2» si mañana y tarde coinciden; si no, «M 2 · T 1».
+  AUS.textoBloques = function (oc, cupo) {
+    if (Math.abs(oc.am - oc.pm) < EPS) return AUS.num(oc.total) + ' de ' + AUS.num(cupo);
+    return 'M ' + AUS.num(oc.am) + ' · T ' + AUS.num(oc.pm);
+  };
+  AUS.ariaBloques = (oc, cupo) => 'mañana ' + AUS.num(oc.am) + ' de ' + AUS.num(cupo) + ', tarde ' + AUS.num(oc.pm) + ' de ' + AUS.num(cupo);
+  AUS.bloquesTxt = (b) => (b.length === 2 ? 'mañana y tarde' : b[0] === 'am' ? 'mañana' : 'tarde');
   AUS.estadoCupo = function (total, cupo) {
     if (cupo <= EPS || total >= cupo - EPS) return 'lleno';
     return total > EPS ? 'parcial' : 'libre';
@@ -190,22 +212,24 @@
       const lista = mapa[f] || [];
       const feriado = data.feriados[f];
       const noHabil = AUS.esFinde(f) || !!feriado;
-      let clase = '', est = '', sub = '', aria = '', clic = true;
+      let clase = '', est = '', sub = '', aria = '', clic = true, franjas = null;
 
       if (vista.tipo === 'equipo') {
         if (noHabil) { clase = 'nohabil'; est = feriado ? 'Feriado' : ''; aria = feriado ? 'feriado: ' + feriado : 'no hábil'; clic = false; }
         else {
           const oc = AUS.ocupacion(lista, eq.id);
           const e = AUS.estadoCupo(oc.total, eq.cupo_diurno);
-          clase = e;
-          est = e === 'libre' ? 'Libre' : e === 'lleno' ? 'Lleno' : AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno);
+          const amLleno = AUS.estadoCupo(oc.am, eq.cupo_diurno) === 'lleno', pmLleno = AUS.estadoCupo(oc.pm, eq.cupo_diurno) === 'lleno';
+          clase = (e === 'lleno' && !(amLleno && pmLleno)) ? 'parcial' : e;   // un solo bloque lleno: aún hay cupo en el otro
+          est = e === 'libre' ? 'Libre' : (amLleno && pmLleno) ? 'Lleno' : amLleno ? 'Mañana llena' : pmLleno ? 'Tarde llena' : AUS.textoBloques(oc, eq.cupo_diurno);
           if (oc.pend > EPS) { clase += ' pend'; sub = 'pendiente'; }
-          if (oc.ceros) sub = (sub ? sub + ' · ' : '') + '+' + oc.ceros + ' FL';
-          aria = e === 'lleno' ? 'lleno, ' + AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados'
-            : e === 'libre' ? 'libre, 0 de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados'
-              : AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados';
+          if (oc.ceros) sub = (sub ? sub + ' · ' : '') + '+' + oc.ceros + ' sin cupo';
+          aria = (e === 'libre' ? 'libre, ' : (amLleno && pmLleno) ? 'lleno, ' : '') + AUS.ariaBloques(oc, eq.cupo_diurno);
+          // Franjas mañana | tarde (apoyo visual; el estado ya va en palabras y en aria-label)
+          franjas = AUS.h('span', { class: 'franjas', 'aria-hidden': 'true' },
+            AUS.h('span', { class: 'franja f-' + AUS.estadoCupo(oc.am, eq.cupo_diurno) }), AUS.h('span', { class: 'franja f-' + AUS.estadoCupo(oc.pm, eq.cupo_diurno) }));
           if (oc.pend > EPS) aria += ', con solicitudes pendientes';
-          if (oc.ceros) aria += ', más ' + oc.ceros + ' con feriado legal largo';
+          if (oc.ceros) aria += ', más ' + oc.ceros + ' ausente(s) que no usan cupo';
         }
       } else if (vista.tipo === 'todos') {
         const nombres = new Set(lista.map((a) => a.nombre + '|' + a.solicitud_id));
@@ -233,7 +257,7 @@
         'aria-label': AUS.fmtLargo(f) + ', ' + aria + (f === hoy ? ' (hoy)' : ''), 'aria-disabled': clic ? null : 'true',
         dataset: { fecha: f },
         onclick: () => { if (clic && opt.onSelect) opt.onSelect(f); },
-      }, AUS.h('span', { class: 'num' }, n), est && AUS.h('span', { class: 'est' }, est), sub && AUS.h('span', { class: 'sub' }, sub));
+      }, AUS.h('span', { class: 'num' }, n), est && AUS.h('span', { class: 'est' }, est), sub && AUS.h('span', { class: 'sub' }, sub), franjas);
       grid.append(btn);
     }
     host.append(grid);
@@ -242,8 +266,8 @@
   AUS.leyenda = function (vista) {
     const l = AUS.h('div', { class: 'leyenda', 'aria-label': 'Leyenda' });
     if (vista.tipo === 'equipo') {
-      l.append(AUS.chip('Libre', 'chip-normal'), AUS.chip('Cupo parcial (ej. 1 de 2)', 'chip-precaucion'), AUS.chip('Lleno', 'chip-critico'),
-        AUS.h('span', { class: 'chip chip-neutro' }, 'Borde punteado = hay pendientes'), AUS.chip('No hábil', 'chip-neutro'));
+      l.append(AUS.chip('Libre', 'chip-normal'), AUS.chip('Con cupo parcial', 'chip-precaucion'), AUS.chip('Lleno', 'chip-critico'),
+        AUS.chip('Franjas: mañana | tarde', 'chip-neutro'), AUS.chip('Borde punteado: hay pendientes', 'chip-neutro'), AUS.chip('No hábil', 'chip-neutro'));
     } else if (vista.tipo === 'todos') {
       l.append(AUS.chip('Libre (sin ausentes)', 'chip-normal'), AUS.chip('Con ausentes (aus.)', 'chip-precaucion'), AUS.chip('Algún equipo lleno', 'chip-critico'), AUS.chip('No hábil', 'chip-neutro'));
     } else l.append(AUS.chip('Turnantes ausentes', 'chip-info'), AUS.chip('Feriado', 'chip-neutro'));
@@ -257,7 +281,7 @@
     const caja = AUS.h('div', { class: 'detalle tarjeta' }, AUS.h('h3', null, AUS.fmtLargo(fecha) + ' · ' + AUS.fmt(fecha)));
     if (feriado) caja.append(AUS.h('p', { class: 'nota' }, 'Feriado: ' + feriado));
     const fila = (a) => {
-      const li = AUS.h('li', null, AUS.h('strong', null, a.nombre), AUS.chip(AUS.tipoTxt(a.tipo, a.fraccion), 'chip-neutro'), AUS.estadoChip(a.estado));
+      const li = AUS.h('li', null, AUS.h('strong', null, a.nombre), AUS.chip(AUS.tipoTxt(a.tipo, a.fraccion, a.etiqueta), 'chip-neutro'), AUS.estadoChip(a.estado));
       if (a.jornada === 'turnante') {
         const u = a.unidad_id ? (AUS.equipoPorId(data, a.unidad_id) || {}).nombre : '';
         const partes = [a.turno ? 'turno ' + a.turno : '', u, a.tipo === 'CT' ? (a.cambio_con ? 'cambia con ' + a.cambio_con : '') : (a.reemplazo ? 'cubre ' + a.reemplazo : '')].filter(Boolean);
@@ -277,12 +301,12 @@
       const eq = AUS.equipoPorId(data, vista.equipoId);
       const arr = lista.filter((a) => a.jornada === 'diurno' && a.equipo_id === eq.id);
       const oc = AUS.ocupacion(lista, eq.id);
-      caja.append(AUS.h('p', null, eq.nombre + ': ' + AUS.num(oc.total) + ' de ' + AUS.num(eq.cupo_diurno) + ' cupos ocupados.'));
+      caja.append(AUS.h('p', null, eq.nombre + ': ' + AUS.ariaBloques(oc, eq.cupo_diurno) + ' cupos ocupados.'));
       bloque('Ausentes del equipo', arr);
     } else if (vista.tipo === 'todos') {
       data.equipos.filter((e) => e.tiene_diurnos).forEach((e) => {
         const arr = lista.filter((a) => a.jornada === 'diurno' && a.equipo_id === e.id);
-        if (arr.length) bloque(e.nombre + ' · ' + AUS.num(AUS.ocupacion(lista, e.id).total) + ' de ' + AUS.num(e.cupo_diurno), arr);
+        if (arr.length) bloque(e.nombre + ' · ' + AUS.textoBloques(AUS.ocupacion(lista, e.id), e.cupo_diurno), arr);
       });
       const t = lista.filter((a) => a.jornada === 'turnante');
       if (t.length) bloque('Turnantes', t);

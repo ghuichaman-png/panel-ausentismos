@@ -17,6 +17,17 @@ function reg_feriados(PDO $db): array
     return $set;
 }
 
+/** Tipo de ausentismo activo por sigla (SPEC-v2 §3.5). */
+function reg_tipo(PDO $db, string $sigla): array
+{
+    $st = $db->prepare('SELECT * FROM tipos_ausentismo WHERE sigla=? AND activo=1');
+    $st->execute([strtoupper(trim($sigla))]);
+    $t = $st->fetch();
+    if (!$t) throw new ApiError('Elige el tipo de ausentismo.', 422);
+    foreach (['consume_cupo', 'medio_dia', 'exige_reemplazo', 'es_cambio_turno', 'precargado', 'activo'] as $k) $t[$k] = (bool)$t[$k];
+    return $t;
+}
+
 function reg_sol(PDO $db, int $id): array
 {
     $st = $db->prepare('SELECT * FROM solicitudes WHERE id=?');
@@ -33,40 +44,18 @@ function reg_sol_dias(PDO $db, int $id): array
     return $st->fetchAll();
 }
 
-/** Resuelve a la persona que pide: nómina (funcionario_id o RUT conocido) o "fuera de nómina". */
+/**
+ * Persona que pide, desde la nómina. Con login (SPEC-v2 §5) el funcionario_id lo pone el servidor desde la
+ * sesión (o coordinación en «en nombre de»); ya no existen las solicitudes «fuera de nómina».
+ */
 function reg_persona(PDO $db, array $in): array
 {
     $sel = 'SELECT f.*, e.nombre AS equipo_nombre FROM funcionarios f LEFT JOIN equipos e ON e.id=f.equipo_id';
-    $f = null;
-    if (!empty($in['funcionario_id'])) {
-        $st = $db->prepare($sel . ' WHERE f.id=? AND f.activo=1');
-        $st->execute([(int)$in['funcionario_id']]);
-        $f = $st->fetch();
-        if (!$f) throw new ApiError('No encontramos a esa persona en la nómina.', 422);
-    } else {
-        $rut = rut_normalizar((string)($in['rut'] ?? ''));
-        if ($rut === null) throw new ApiError('El RUT no es válido. Revisa el dígito verificador.', 422);
-        $st = $db->prepare($sel . ' WHERE f.rut=? AND f.activo=1');
-        $st->execute([$rut]);
-        $f = $st->fetch();
-        if (!$f) {
-            $nombre = limpiar($in['nombre'] ?? '', 120);
-            if (mb_strlen($nombre) < 3) throw new ApiError('Escribe tu nombre completo.', 422);
-            $jornada = $in['jornada'] ?? '';
-            if (!es_en($jornada, ['diurno', 'turnante'])) throw new ApiError('Indica tu jornada.', 422);
-            $calidad = $in['calidad'] ?? '';
-            if (!es_en($calidad, ['titular', 'contrata', 'honorarios'])) throw new ApiError('Indica tu calidad jurídica.', 422);
-            $equipo = !empty($in['equipo_id']) ? (int)$in['equipo_id'] : null;
-            if ($jornada === 'diurno' && $equipo === null) throw new ApiError('Indica tu equipo.', 422);
-            if ($equipo !== null) {
-                $st = $db->prepare('SELECT 1 FROM equipos WHERE id=? AND activo=1');
-                $st->execute([$equipo]);
-                if (!$st->fetchColumn()) throw new ApiError('El equipo indicado no existe.', 422);
-            }
-            return ['funcionario_id' => null, 'nombre' => $nombre, 'rut' => $rut, 'jornada' => $jornada,
-                    'equipo_id' => $equipo, 'calidad' => $calidad, 'fuera' => 1, 'equipo_nombre' => null];
-        }
-    }
+    if (empty($in['funcionario_id'])) throw new ApiError('Falta indicar la persona.', 422);
+    $st = $db->prepare($sel . ' WHERE f.id=? AND f.activo=1');
+    $st->execute([(int)$in['funcionario_id']]);
+    $f = $st->fetch();
+    if (!$f) throw new ApiError('No encontramos a esa persona en la nómina (o está desactivada).', 422);
     if ($f['jornada'] === 'diurno' && !$f['equipo_id']) {
         throw new ApiError('Esta persona no tiene equipo asignado en la nómina. Avisa a coordinación.', 422);
     }
@@ -75,16 +64,17 @@ function reg_persona(PDO $db, array $in): array
             'fuera' => 0, 'equipo_nombre' => $f['equipo_nombre']];
 }
 
-/** Días y consumo de cupo para un DIURNO. Omite fines de semana y feriados. */
-function reg_dias_diurno(string $tipo, string $fi, string $ff, string $fraccion, string $calidad, array $feriados, int $umbral = 5): array
+/** Días y consumo de cupo para un DIURNO según la configuración del tipo. Omite fines de semana y feriados. */
+function reg_dias_diurno(array $t, string $fi, string $ff, string $fraccion, string $calidad, array $feriados, int $umbral = 5): array
 {
-    if ($tipo === 'ADM') {
-        $ff = $fi; // el administrativo es de un solo día
+    if ($t['es_cambio_turno']) throw new ApiError('El cambio de turno solo está disponible para turnantes.', 422);
+    if ($t['rango'] === 'un_dia') {
+        if ($ff !== $fi) throw new ApiError('«' . $t['nombre'] . '» es de un solo día.', 422);
+    }
+    if ($t['medio_dia']) {
         if (!in_array($fraccion, REG_FRACCIONES_DIURNO, true)) throw new ApiError('Elige día completo, mañana o tarde.', 422);
-    } elseif ($tipo === 'FL') {
-        $fraccion = 'completo';
     } else {
-        throw new ApiError('El cambio de turno solo está disponible para turnantes.', 422);
+        $fraccion = 'completo';
     }
     if ($ff < $fi) throw new ApiError('La fecha final es anterior a la inicial.', 422);
 
@@ -98,64 +88,99 @@ function reg_dias_diurno(string $tipo, string $fi, string $ff, string $fraccion,
     $n = count($habiles);
     if ($n === 0) throw new ApiError('Las fechas elegidas no incluyen días hábiles (lunes a viernes no feriados).', 422);
 
-    if ($tipo === 'ADM') $consumo = $fraccion === 'completo' ? 1.0 : 0.5;
-    else $consumo = ($calidad !== 'honorarios' && $n >= $umbral) ? 0.0 : 1.0;
+    if (!$t['consume_cupo']) $consumo = 0.0;
+    elseif ($t['regla_cupo'] === 'fl') $consumo = ($calidad !== 'honorarios' && $n >= $umbral) ? 0.0 : 1.0;
+    else $consumo = $fraccion === 'completo' ? 1.0 : 0.5;
 
     $dias = [];
     foreach ($habiles as $f) {
+        // Bloques: día completo ocupa mañana y tarde; medio día, solo su bloque (SPEC-v2 §4.2).
+        $usa = $consumo > 0 ? 1.0 : 0.0;
         $dias[] = ['fecha' => $f, 'consumo' => $consumo, 'fraccion' => $fraccion,
+                   'am' => in_array($fraccion, ['completo', 'am'], true) ? $usa : 0.0,
+                   'pm' => in_array($fraccion, ['completo', 'pm'], true) ? $usa : 0.0,
                    'turno' => null, 'unidad_turno_id' => null, 'reemplazo_nombre' => null];
     }
     return ['dias' => $dias, 'omitidos' => $omitidos, 'habiles' => $n];
 }
 
-/** Días de un TURNANTE (nunca consumen cupo). $extra recibe los campos de cambio de turno. */
-function reg_dias_turnante(array $in, string $tipo, array $unidades, array &$extra): array
+/** Persona activa de la nómina distinta de quien pide (reemplazo o compañero de cambio). Devuelve su nombre. */
+function reg_otra_persona(PDO $db, mixed $id, int $yo, string $que): string
 {
-    $raw = $in['dias'] ?? [];
-    if (!is_array($raw) || count($raw) === 0) throw new ApiError('Indica al menos un día y turno.', 422);
-    if (count($raw) > 62) throw new ApiError('Demasiados días en una sola solicitud (máximo 62).', 422);
-    if ($tipo !== 'FL' && count($raw) !== 1) throw new ApiError('Este tipo de solicitud es de un solo turno.', 422);
+    $id = (int)$id;
+    if ($id <= 0) throw new ApiError("Indica $que.", 422);
+    if ($id === $yo) throw new ApiError('Para ' . $que . ' elige a otra persona.', 422);
+    $st = $db->prepare('SELECT nombre FROM funcionarios WHERE id=? AND activo=1');
+    $st->execute([$id]);
+    $n = $st->fetchColumn();
+    if ($n === false) throw new ApiError("No encontramos en la nómina a la persona elegida para $que.", 422);
+    return (string)$n;
+}
 
+/** Un turno cargado cuyo titular es $fid. */
+function reg_turno_de(PDO $db, mixed $turnoId, int $fid, string $msgAjeno = 'Ese turno no es tuyo.'): array
+{
+    $t = $turnoId ? (function () use ($db, $turnoId) { $st = $db->prepare('SELECT * FROM turnos WHERE id=?'); $st->execute([(int)$turnoId]); return $st->fetch(); })() : false;
+    if (!$t) throw new ApiError('Elige uno de tus turnos cargados. Si te falta un turno, avisa a coordinación.', 422);
+    if ((int)$t['titular_id'] !== $fid) throw new ApiError($msgAjeno, 422);
+    return $t;
+}
+
+function reg_dia_de_turno(array $tu, string $fraccion, ?int $reemplazoId, ?string $reemplazoNombre): array
+{
+    return ['fecha' => $tu['fecha'], 'consumo' => 0.0, 'am' => 0.0, 'pm' => 0.0, 'fraccion' => $fraccion, 'turno' => $tu['tipo'],
+            'unidad_turno_id' => (int)$tu['unidad_id'], 'turno_id' => (int)$tu['id'], 'reemplazo_id' => $reemplazoId, 'reemplazo_nombre' => $reemplazoNombre];
+}
+
+/**
+ * Días de un TURNANTE sobre sus turnos cargados (SPEC-v2 §4.3: se exige turno cargado). Nunca consumen cupo.
+ *  - Tipos de un día (ADM): turno_id + reemplazo_id.
+ *  - Tipos de rango (FL): fecha_inicio, fecha_fin y reemplazos {turno_id: reemplazo_id}; entran todos sus turnos del rango.
+ *  - Cambio de turno: turno_id + cambio_con_id (+ devolucion_turno_id, un turno del compañero).
+ * $extra recibe los campos del cambio de turno.
+ */
+function reg_dias_turnos(PDO $db, array $in, array $t, int $fid, array &$extra): array
+{
+    if (!empty($in['dias'])) throw new ApiError('Las solicitudes de turnantes se hacen sobre los turnos cargados en el calendario de turnos.', 422);
     $fraccion = 'completo';
-    if ($tipo === 'ADM') {
+    if ($t['medio_dia']) {
         $fraccion = (string)($in['fraccion'] ?? 'completo');
         if (!in_array($fraccion, REG_FRACCIONES_TURNANTE, true)) throw new ApiError('Elige turno completo o una mitad del turno.', 422);
     }
-
-    $dias = [];
-    $vistos = [];
-    foreach ($raw as $d) {
-        if (!is_array($d) || !fecha_ok($d['fecha'] ?? null)) throw new ApiError('Hay una fecha inválida.', 422);
-        $turno = $d['turno'] ?? '';
-        if (!es_en($turno, ['largo', 'noche'])) throw new ApiError('Indica el turno (largo o noche) de cada fecha.', 422);
-        $unidad = (int)($d['unidad_id'] ?? 0);
-        if (!isset($unidades[$unidad])) throw new ApiError('Indica la unidad del turno de cada fecha.', 422);
-        $clave = $d['fecha'] . '|' . $turno;
-        if (isset($vistos[$clave])) throw new ApiError('Hay un turno repetido el ' . fecha_cl($d['fecha']) . '.', 422);
-        $vistos[$clave] = true;
-        $reemplazo = null;
-        if ($tipo !== 'CT') {
-            $reemplazo = limpiar($d['reemplazo'] ?? '', 120);
-            if ($reemplazo === '') throw new ApiError('Indica quién cubre tu turno del ' . fecha_cl($d['fecha']) . '.', 422);
+    if ($t['es_cambio_turno']) {
+        $tu = reg_turno_de($db, $in['turno_id'] ?? null, $fid);
+        $conId = (int)($in['cambio_con_id'] ?? 0);
+        $extra['cambio_con'] = reg_otra_persona($db, $conId, $fid, 'con quién cambias el turno');
+        $extra['cambio_con_id'] = $conId;
+        if (!empty($in['devolucion_turno_id'])) {
+            $dev = reg_turno_de($db, $in['devolucion_turno_id'], $conId, 'La devolución debe ser un turno de la persona con quien cambias.');
+            $extra['devolucion_turno_id'] = (int)$dev['id'];
+            $extra['devolucion_fecha'] = $dev['fecha'];
+            $extra['devolucion_turno'] = $dev['tipo'];
         }
-        $dias[] = ['fecha' => $d['fecha'], 'consumo' => 0.0, 'fraccion' => $fraccion, 'turno' => $turno,
-                   'unidad_turno_id' => $unidad, 'reemplazo_nombre' => $reemplazo];
+        return [reg_dia_de_turno($tu, 'completo', null, null)];
     }
-    usort($dias, fn($a, $b) => [$a['fecha'], $a['turno']] <=> [$b['fecha'], $b['turno']]);
-
-    if ($tipo === 'CT') {
-        $extra['cambio_con'] = limpiar($in['cambio_con'] ?? '', 120);
-        if ($extra['cambio_con'] === '') throw new ApiError('Indica con quién cambias el turno.', 422);
-        $df = $in['devolucion_fecha'] ?? null;
-        $dt = $in['devolucion_turno'] ?? null;
-        if (($df !== null && $df !== '') || ($dt !== null && $dt !== '')) {
-            if (!fecha_ok($df) || !es_en($dt, ['largo', 'noche'])) {
-                throw new ApiError('Para la devolución indica fecha y turno, o déjala en blanco.', 422);
-            }
-            $extra['devolucion_fecha'] = $df;
-            $extra['devolucion_turno'] = $dt;
-        }
+    $reemplazo = function (mixed $rid, array $tu) use ($db, $t, $fid): array {
+        if (!$rid && !$t['exige_reemplazo']) return [null, null];
+        if (!$rid) throw new ApiError('Indica quién cubre tu turno del ' . fecha_cl($tu['fecha']) . '.', 422);
+        return [(int)$rid, reg_otra_persona($db, $rid, $fid, 'quién cubre tu turno del ' . fecha_cl($tu['fecha']))];
+    };
+    if ($t['rango'] === 'un_dia') {
+        $tu = reg_turno_de($db, $in['turno_id'] ?? null, $fid);
+        [$rid, $rn] = $reemplazo($in['reemplazo_id'] ?? null, $tu);
+        return [reg_dia_de_turno($tu, $fraccion, $rid, $rn)];
+    }
+    if (!fecha_ok($in['fecha_inicio'] ?? null)) throw new ApiError('Indica desde qué fecha.', 422);
+    $ff = fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $in['fecha_inicio'];
+    if ($ff < $in['fecha_inicio']) throw new ApiError('La fecha final es anterior a la inicial.', 422);
+    $turnos = turnos_de($db, $fid, $in['fecha_inicio'], $ff);
+    if (!$turnos) throw new ApiError('No tienes turnos cargados entre el ' . fecha_cl($in['fecha_inicio']) . ' y el ' . fecha_cl($ff) . '. Si falta alguno, avisa a coordinación.', 422);
+    if (count($turnos) > 62) throw new ApiError('Demasiados turnos en una sola solicitud (máximo 62).', 422);
+    $mapa = is_array($in['reemplazos'] ?? null) ? $in['reemplazos'] : [];
+    $dias = [];
+    foreach ($turnos as $tu) {
+        [$rid, $rn] = $reemplazo($mapa[$tu['id']] ?? $mapa[(string)$tu['id']] ?? null, $tu);
+        $dias[] = reg_dia_de_turno($tu, 'completo', $rid, $rn);
     }
     return $dias;
 }
@@ -185,31 +210,43 @@ function reg_superposicion(PDO $db, string $rut, array $dias, ?int $excluir = nu
     }
 }
 
-/** Ocupación de cupo (suma de consumo de pendientes + autorizadas de diurnos) por fecha. */
-function reg_ocupacion(PDO $db, int $equipoId, string $desde, string $hasta, ?int $excluir = null): array
+/** Ocupación por bloque (pendientes + autorizadas de diurnos): fecha => ['am' => x, 'pm' => y]. */
+function reg_ocupacion_bloques(PDO $db, int $equipoId, string $desde, string $hasta, ?int $excluir = null): array
 {
-    $st = $db->prepare("SELECT sd.fecha, SUM(sd.consumo) AS oc
+    $st = $db->prepare("SELECT sd.fecha, SUM(sd.am) AS am, SUM(sd.pm) AS pm
         FROM solicitud_dias sd JOIN solicitudes s ON s.id = sd.solicitud_id
         WHERE s.estado IN ('pendiente','autorizada') AND s.jornada = 'diurno'
           AND sd.equipo_id = ? AND s.id <> ? AND sd.fecha BETWEEN ? AND ?
         GROUP BY sd.fecha");
     $st->execute([$equipoId, $excluir ?? 0, $desde, $hasta]);
     $out = [];
-    foreach ($st->fetchAll() as $r) $out[$r['fecha']] = (float)$r['oc'];
+    foreach ($st->fetchAll() as $r) $out[$r['fecha']] = ['am' => (float)$r['am'], 'pm' => (float)$r['pm']];
     return $out;
 }
 
+/** Ocupación de un día = la del bloque más ocupado (para resúmenes de un solo número). */
+function reg_ocupacion(PDO $db, int $equipoId, string $desde, string $hasta, ?int $excluir = null): array
+{
+    return array_map(fn($b) => max($b['am'], $b['pm']), reg_ocupacion_bloques($db, $equipoId, $desde, $hasta, $excluir));
+}
+
+/** Días en que algún bloque pedido quedaría sobre el cupo. Cada entrada indica qué bloques ('am', 'pm') se llenan. */
 function reg_dias_llenos(PDO $db, int $equipoId, array $dias, float $cupo, ?int $excluir = null): array
 {
     if (!$dias) return [];
     $fechas = array_column($dias, 'fecha');
-    $oc = reg_ocupacion($db, $equipoId, min($fechas), max($fechas), $excluir);
+    $oc = reg_ocupacion_bloques($db, $equipoId, min($fechas), max($fechas), $excluir);
     $llenos = [];
     foreach ($dias as $d) {
-        if ($d['consumo'] <= 0) continue;
-        $o = $oc[$d['fecha']] ?? 0.0;
-        if ($o + $d['consumo'] > $cupo + REG_EPS) {
-            $llenos[] = ['fecha' => $d['fecha'], 'ocupado' => $o, 'cupo' => $cupo, 'consumo' => (float)$d['consumo']];
+        $o = $oc[$d['fecha']] ?? ['am' => 0.0, 'pm' => 0.0];
+        $bloques = [];
+        foreach (['am', 'pm'] as $b) {
+            $pide = (float)($d[$b] ?? 0);
+            if ($pide > 0 && $o[$b] + $pide > $cupo + REG_EPS) $bloques[] = $b;
+        }
+        if ($bloques) {
+            $llenos[] = ['fecha' => $d['fecha'], 'bloques' => $bloques, 'ocupado' => max(array_map(fn($b) => $o[$b], $bloques)),
+                         'ocupado_am' => $o['am'], 'ocupado_pm' => $o['pm'], 'cupo' => $cupo, 'consumo' => (float)$d['consumo']];
         }
     }
     return $llenos;
@@ -240,10 +277,14 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
     $fn = function () use ($db, $in, $meta, $dry): array {
         $cfg = $meta['cfg'] ?? [];
         $p = reg_persona($db, $in);
-        $tipo = $in['tipo'] ?? '';
-        if (!es_en($tipo, ['FL', 'ADM', 'CT'])) throw new ApiError('Elige el tipo de ausentismo.', 422);
+        $t = reg_tipo($db, (string)($in['tipo'] ?? ''));
+        $tipo = $t['sigla'];
+        if ($t['lo_pide'] === 'coordinacion' && empty($meta['por_coordinacion'])) {
+            throw new ApiError('«' . $t['nombre'] . '» lo registra coordinación.', 403, ['codigo' => 'solo_coordinacion']);
+        }
         $hoy = Reloj::hoy();
-        $extra = ['cambio_con' => null, 'devolucion_fecha' => null, 'devolucion_turno' => null];
+        $extra = ['cambio_con' => null, 'cambio_con_id' => null, 'devolucion_turno_id' => null, 'devolucion_fecha' => null, 'devolucion_turno' => null];
+        $rangoSaldo = null;
         $omitidos = [];
         $equipo = null;
 
@@ -253,14 +294,24 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
             if (!fecha_ok($in['fecha_inicio'] ?? null)) throw new ApiError('Indica la fecha.', 422);
             $fi = $in['fecha_inicio'];
             $ff = fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $fi;
-            $calc = reg_dias_diurno($tipo, $fi, $ff, (string)($in['fraccion'] ?? 'completo'), $p['calidad'],
+            $calc = reg_dias_diurno($t, $fi, $ff, (string)($in['fraccion'] ?? 'completo'), $p['calidad'],
                                     reg_feriados($db), (int)($cfg['fl_largo_dias_habiles'] ?? 5));
             $dias = $calc['dias'];
             $omitidos = $calc['omitidos'];
             foreach ($dias as &$d) $d['equipo_id'] = (int)$p['equipo_id'];
             unset($d);
         } else {
-            $dias = reg_dias_turnante($in, $tipo, reg_unidades_turno($db), $extra);
+            if ($t['lo_pide'] === 'coordinacion' && !$t['exige_reemplazo'] && !$t['es_cambio_turno'] && $t['rango'] === 'rango' && fecha_ok($in['fecha_inicio'] ?? null)) {
+                // Turnante con un tipo de rango sin reemplazo (p. ej. licencia): un día por fecha, sin turno (SPEC-v2 §4.6).
+                $ff = fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $in['fecha_inicio'];
+                if ($ff < $in['fecha_inicio']) throw new ApiError('La fecha final es anterior a la inicial.', 422);
+                $dias = array_map(fn($f) => ['fecha' => $f, 'consumo' => 0.0, 'am' => 0.0, 'pm' => 0.0, 'fraccion' => 'completo', 'turno' => null,
+                                             'unidad_turno_id' => null, 'turno_id' => null, 'reemplazo_id' => null, 'reemplazo_nombre' => null], rango_fechas($in['fecha_inicio'], $ff, 62));
+            } else {
+                $dias = reg_dias_turnos($db, $in, $t, $p['funcionario_id'], $extra);
+                // FL de turnante: el saldo cuenta los días hábiles del rango pedido, no solo los días con turno (§12.1).
+                if ($t['rango'] === 'rango' && !$t['es_cambio_turno']) $rangoSaldo = [$in['fecha_inicio'], fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $in['fecha_inicio']];
+            }
             foreach ($dias as &$d) $d['equipo_id'] = null;
             unset($d);
         }
@@ -268,7 +319,8 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         $fechas = array_column($dias, 'fecha');
         $primera = min($fechas);
         $ultima = max($fechas);
-        if ($primera < $hoy) throw new ApiError('No se pueden pedir fechas pasadas.', 422);
+        // Coordinación puede registrar licencias o solicitudes pasadas «en nombre de» (SPEC-v2 §4.8).
+        if ($primera < $hoy && empty($meta['por_coordinacion'])) throw new ApiError('No se pueden pedir fechas pasadas.', 422);
         if (!empty($cfg['anticipacion_min_dias'])) {
             $dif = (int)(new DateTimeImmutable($hoy))->diff(new DateTimeImmutable($primera))->days;
             if ($dif < (int)$cfg['anticipacion_min_dias']) throw new ApiError('Debes pedir con al menos ' . (int)$cfg['anticipacion_min_dias'] . ' días de anticipación.', 422);
@@ -283,16 +335,18 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         $llenos = [];
         if ($equipo) $llenos = reg_dias_llenos($db, (int)$equipo['id'], $dias, (float)$equipo['cupo_diurno']);
         $consumoTotal = array_sum(array_column($dias, 'consumo'));
+        // Saldo (SPEC-v2 §4.5): se calcula dentro de la misma transacción que el cupo.
+        $usoSaldo = saldo_requerido($t, $dias, reg_feriados($db), $rangoSaldo);
+        $revSaldo = saldo_revisar($db, $p['funcionario_id'], $t['saldo'], $usoSaldo);
 
         if ($dry) {
-            return ['persona' => ['nombre' => $p['nombre'], 'jornada' => $p['jornada'], 'equipo_id' => $p['equipo_id'],
-                                  'equipo' => $p['equipo_nombre'] ?? ($equipo['nombre'] ?? null), 'calidad' => $p['calidad'],
-                                  'fuera_de_nomina' => (bool)$p['fuera']],
-                    'dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'fraccion' => $d['fraccion']], $dias),
+            // Sin datos de la persona: sin login, cualquiera podría simular a nombre de otro (bug N2).
+            return ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'am' => $d['am'], 'pm' => $d['pm'], 'fraccion' => $d['fraccion']], $dias),
                     'omitidos' => $omitidos, 'habiles' => count($dias), 'consumo_total' => $consumoTotal,
-                    'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null];
+                    'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null, 'saldo' => $revSaldo];
         }
 
+        saldo_exigir($revSaldo);   // se bloquea si no alcanza (antes que el sobre cupo: eso no lo arregla)
         $justif = limpiar($in['justificacion'] ?? '', 1000);
         if ($llenos) {
             if (empty($in['acepta_sobre_cupo'])) {
@@ -311,31 +365,45 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         $db->prepare('INSERT INTO solicitudes
             (codigo,funcionario_id,nombre,nombre_norm,rut,jornada,equipo_id,calidad,tipo,fecha_inicio,fecha_fin,fraccion,turno,
              unidad_turno_id,reemplazo_nombre,cambio_con,devolucion_fecha,devolucion_turno,comentario,sobre_cupo,
-             justificacion_sobre_cupo,estado,fuera_de_nomina,creado_en,ip,user_agent)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+             justificacion_sobre_cupo,estado,fuera_de_nomina,creado_en,ip,user_agent,creada_por,cambio_con_id,devolucion_turno_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
            ->execute([$codigo, $p['funcionario_id'], $nomb, texto_norm($nomb), $p['rut'], $p['jornada'], $p['equipo_id'],
                       $p['calidad'], $tipo, $primera, $ultima, $d0['fraccion'], $d0['turno'], $d0['unidad_turno_id'],
                       $d0['reemplazo_nombre'], $extra['cambio_con'], $extra['devolucion_fecha'], $extra['devolucion_turno'],
                       limpiar($in['comentario'] ?? '', 500) ?: null, $llenos ? 1 : 0, $llenos ? $justif : null,
-                      'pendiente', $p['fuera'], Reloj::stamp(), $meta['ip'] ?? '', mb_substr((string)($meta['ua'] ?? ''), 0, 300)]);
+                      'pendiente', 0, Reloj::stamp(), $meta['ip'] ?? '', mb_substr((string)($meta['ua'] ?? ''), 0, 300),
+                      $meta['creada_por'] ?? $p['funcionario_id'], $extra['cambio_con_id'], $extra['devolucion_turno_id']]);
         $id = (int)$db->lastInsertId();
 
-        $ins = $db->prepare('INSERT INTO solicitud_dias (solicitud_id,fecha,equipo_id,consumo,fraccion,turno,unidad_turno_id,reemplazo_nombre) VALUES (?,?,?,?,?,?,?,?)');
+        $ins = $db->prepare('INSERT INTO solicitud_dias (solicitud_id,fecha,equipo_id,consumo,am,pm,fraccion,turno,unidad_turno_id,turno_id,reemplazo_id,reemplazo_nombre) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
         foreach ($dias as $d) {
-            $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['reemplazo_nombre']]);
+            $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['am'], $d['pm'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['turno_id'] ?? null, $d['reemplazo_id'] ?? null, $d['reemplazo_nombre']]);
         }
-        auditar($db, 'crear', $id, "$codigo $tipo {$primera}→{$ultima}" . ($llenos ? ' SOBRE CUPO' : '') . ($p['fuera'] ? ' FUERA DE NÓMINA' : ''), $meta['ip'] ?? '');
+        saldo_registrar_uso($db, $id, $t['saldo'], $usoSaldo);
+        // Los tipos que registra coordinación (licencia) nacen autorizados, firmados por quien los registró (§12.5).
+        $estado = 'pendiente';
+        if ($t['lo_pide'] === 'coordinacion' && !empty($meta['por_coordinacion'])) {
+            $estado = 'autorizada';
+            $porId = isset($meta['creada_por']) ? (int)$meta['creada_por'] : null;
+            $db->prepare("UPDATE solicitudes SET estado='autorizada', resuelta_por_id=?, resuelto_por=(SELECT nombre FROM funcionarios WHERE id=?), resuelto_en=? WHERE id=?")
+               ->execute([$porId, $porId, Reloj::stamp(), $id]);
+            turnos_aplicar($db, reg_sol($db, $id), true);
+        }
+        $porOtro = isset($meta['creada_por']) && (int)$meta['creada_por'] !== $p['funcionario_id'];
+        auditar($db, 'crear', $id, "$codigo $tipo {$primera}→{$ultima}" . ($llenos ? ' SOBRE CUPO' : '') . ($porOtro ? ' (registrada por coordinación)' : ''),
+                $meta['ip'] ?? '', $meta['creada_por'] ?? $p['funcionario_id']);
         notificar('solicitud_creada', ['id' => $id, 'codigo' => $codigo]);
 
-        return ['id' => $id, 'codigo' => $codigo, 'estado' => 'pendiente', 'sobre_cupo' => (bool)$llenos,
+        return ['id' => $id, 'codigo' => $codigo, 'estado' => $estado, 'sobre_cupo' => (bool)$llenos,
                 'habiles' => count($dias), 'omitidos' => $omitidos, 'consumo_total' => $consumoTotal];
     };
     return $dry ? $fn() : tx($db, $fn);
 }
 
-function reg_resolver(PDO $db, int $id, string $accion, string $motivo, string $por, string $ip = ''): array
+/** $por: nombre de quien resuelve (se muestra); $porId: su funcionario_id (cuenta con sesión). */
+function reg_resolver(PDO $db, int $id, string $accion, string $motivo, string $por, string $ip = '', ?int $porId = null, bool $esExtra = true): array
 {
-    return tx($db, function () use ($db, $id, $accion, $motivo, $por, $ip) {
+    return tx($db, function () use ($db, $id, $accion, $motivo, $por, $ip, $porId, $esExtra) {
         $s = reg_sol($db, $id);
         $por = limpiar($por, 60);
         $motivo = limpiar($motivo, 500);
@@ -346,18 +414,19 @@ function reg_resolver(PDO $db, int $id, string $accion, string $motivo, string $
             if ($motivo === '') throw new ApiError('Para rechazar debes escribir el motivo.', 422);
             $nuevo = 'rechazada';
         } else throw new ApiError('Acción inválida.', 422);
-        $db->prepare('UPDATE solicitudes SET estado=?, motivo_resolucion=?, resuelto_por=?, resuelto_en=? WHERE id=?')
-           ->execute([$nuevo, $motivo ?: null, $por, Reloj::stamp(), $id]);
-        auditar($db, $nuevo === 'autorizada' ? 'autorizar' : 'rechazar', $id, "{$s['codigo']} por $por. $motivo", $ip);
+        $db->prepare('UPDATE solicitudes SET estado=?, motivo_resolucion=?, resuelto_por=?, resuelta_por_id=?, resuelto_en=? WHERE id=?')
+           ->execute([$nuevo, $motivo ?: null, $por, $porId, Reloj::stamp(), $id]);
+        if ($nuevo === 'autorizada') turnos_aplicar($db, $s, $esExtra);   // misma transacción: todo o nada
+        auditar($db, $nuevo === 'autorizada' ? 'autorizar' : 'rechazar', $id, "{$s['codigo']} por $por. $motivo", $ip, $porId);
         notificar('solicitud_resuelta', ['id' => $id, 'codigo' => $s['codigo'], 'estado' => $nuevo]);
         return ['estado' => $nuevo];
     });
 }
 
 /** autorizada → rechazada (motivo obligatorio) | rechazada → autorizada (re-verifica cupo). */
-function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $aceptaSobre = false, string $justif = '', string $ip = ''): array
+function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $aceptaSobre = false, string $justif = '', string $ip = '', ?int $porId = null): array
 {
-    return tx($db, function () use ($db, $id, $motivo, $por, $aceptaSobre, $justif, $ip) {
+    return tx($db, function () use ($db, $id, $motivo, $por, $aceptaSobre, $justif, $ip, $porId) {
         $s = reg_sol($db, $id);
         $por = limpiar($por, 60);
         $motivo = limpiar($motivo, 500);
@@ -366,9 +435,10 @@ function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $acept
 
         if ($s['estado'] === 'autorizada') {
             if ($motivo === '') throw new ApiError('Para rechazar debes escribir el motivo.', 422);
-            $db->prepare("UPDATE solicitudes SET estado='rechazada', motivo_resolucion=?, resuelto_por=?, resuelto_en=? WHERE id=?")
-               ->execute([$motivo, $por, Reloj::stamp(), $id]);
-            auditar($db, 'revertir_a_rechazada', $id, "{$s['codigo']} por $por. $motivo", $ip);
+            $db->prepare("UPDATE solicitudes SET estado='rechazada', motivo_resolucion=?, resuelto_por=?, resuelta_por_id=?, resuelto_en=? WHERE id=?")
+               ->execute([$motivo, $por, $porId, Reloj::stamp(), $id]);
+            turnos_restaurar($db, $id);
+            auditar($db, 'revertir_a_rechazada', $id, "{$s['codigo']} por $por. $motivo", $ip, $porId);
             notificar('solicitud_resuelta', ['id' => $id, 'codigo' => $s['codigo'], 'estado' => 'rechazada']);
             return ['estado' => 'rechazada'];
         }
@@ -381,36 +451,44 @@ function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $acept
             $eq = reg_equipo($db, (int)$s['equipo_id']);
             $llenos = reg_dias_llenos($db, (int)$eq['id'], $dias, (float)$eq['cupo_diurno'], $id);
         }
+        $uso = saldo_uso_guardado($db, $id);   // al volver a autorizar se re-verifica el saldo (sin contarse a sí misma)
+        saldo_exigir(saldo_revisar($db, (int)$s['funcionario_id'], $uso['saldo'], $uso['req'], $id));
         if ($llenos) {
             if (!$aceptaSobre) throw new ApiError('Ya no hay cupo en algunos días. Para autorizarla debe marcarse sobre cupo con justificación.', 409, ['codigo' => 'sin_cupo', 'dias_llenos' => $llenos]);
             if ($justif === '') throw new ApiError('Escribe la justificación del sobre cupo.', 422, ['codigo' => 'falta_justificacion']);
         }
-        $db->prepare("UPDATE solicitudes SET estado='autorizada', sobre_cupo=?, justificacion_sobre_cupo=COALESCE(?, justificacion_sobre_cupo), motivo_resolucion=?, resuelto_por=?, resuelto_en=? WHERE id=?")
-           ->execute([$llenos ? 1 : 0, $llenos ? $justif : null, $motivo ?: null, $por, Reloj::stamp(), $id]);
-        auditar($db, 'revertir_a_autorizada', $id, "{$s['codigo']} por $por" . ($llenos ? ' SOBRE CUPO' : ''), $ip);
+        $db->prepare("UPDATE solicitudes SET estado='autorizada', sobre_cupo=?, justificacion_sobre_cupo=COALESCE(?, justificacion_sobre_cupo), motivo_resolucion=?, resuelto_por=?, resuelta_por_id=?, resuelto_en=? WHERE id=?")
+           ->execute([$llenos ? 1 : 0, $llenos ? $justif : null, $motivo ?: null, $por, $porId, Reloj::stamp(), $id]);
+        turnos_aplicar($db, $s, true);
+        auditar($db, 'revertir_a_autorizada', $id, "{$s['codigo']} por $por" . ($llenos ? ' SOBRE CUPO' : ''), $ip, $porId);
         notificar('solicitud_resuelta', ['id' => $id, 'codigo' => $s['codigo'], 'estado' => 'autorizada']);
         return ['estado' => 'autorizada', 'sobre_cupo' => (bool)$llenos];
     });
 }
 
-/** Anula. El funcionario debe dar su RUT y hacerlo hasta las 23:59 del día anterior a la primera fecha. */
-function reg_anular(PDO $db, int $id, ?string $rut, bool $esCoord, string $por = '', string $ip = ''): array
+/**
+ * Anula. La dueña de la solicitud (su sesión: $actorId) puede hacerlo hasta las 23:59 del día anterior a la
+ * primera fecha; coordinación ($esCoord), siempre. Nadie anula la solicitud de otra persona.
+ */
+function reg_anular(PDO $db, int $id, ?int $actorId, bool $esCoord, string $por = '', string $ip = ''): array
 {
-    return tx($db, function () use ($db, $id, $rut, $esCoord, $por, $ip) {
+    return tx($db, function () use ($db, $id, $actorId, $esCoord, $por, $ip) {
         $s = reg_sol($db, $id);
         if (!in_array($s['estado'], ['pendiente', 'autorizada'], true)) {
             throw new ApiError('Esta solicitud ya está ' . $s['estado'] . ' y no se puede anular.', 409);
         }
         if (!$esCoord) {
-            $r = rut_normalizar((string)$rut);
-            if ($r === null || $r !== $s['rut']) throw new ApiError('El RUT no coincide con el de la solicitud.', 403);
+            if ($actorId === null || (int)$s['funcionario_id'] !== $actorId) {
+                throw new ApiError('Solo puedes anular tus propias solicitudes.', 403, ['codigo' => 'no_es_tuya']);
+            }
             if (Reloj::hoy() >= $s['fecha_inicio']) {
                 throw new ApiError('Ya no se puede anular: el plazo terminó a las 23:59 del día anterior al primer día. Habla con coordinación.', 409);
             }
         }
+        if ($s['estado'] === 'autorizada') turnos_restaurar($db, $id);
         $db->prepare("UPDATE solicitudes SET estado='anulada', anulado_en=?, resuelto_por=COALESCE(?, resuelto_por) WHERE id=?")
            ->execute([Reloj::stamp(), $esCoord ? (limpiar($por, 60) ?: null) : null, $id]);
-        auditar($db, $esCoord ? 'anular_coord' : 'anular', $id, $s['codigo'] . ($esCoord ? " por $por" : ''), $ip);
+        auditar($db, $esCoord ? 'anular_coord' : 'anular', $id, $s['codigo'] . ($esCoord ? " por $por" : ''), $ip, $actorId);
         return ['estado' => 'anulada'];
     });
 }

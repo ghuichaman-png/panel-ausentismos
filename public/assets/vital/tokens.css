@@ -1,0 +1,182 @@
+/* Vital — generated from tokens.json */
+:root, [data-theme="light"] {
+  --bg: #f4f7f6; /* Fondo de página (el 'lienzo' gris-menta). Secciones alternas y área detrás de las tarjetas. */
+  --surface: #ffffff; /* Tarjetas, modales, barras y campos sobre `bg`. */
+  --surface-sunken: #eaf0ee; /* Fondo de inputs, controles segmentados y pistas (track) de barras de progreso. */
+  --surface-raised: #ffffff; /* Elemento seleccionado que se eleva sobre `surface-sunken` (opción activa del control segmentado, menús). En oscuro es más claro que `surface`. */
+  --hairline: #dbe3e0; /* Bordes de 1px y divisores. Nunca para texto. */
+  --nav-glass: rgba(244,247,246,0.78); /* Fondo translúcido de la barra de navegación (con backdrop-filter: blur(20px) saturate(180%)). */
+  --ink: #0f1d1a; /* Texto principal y titulares. Legible sobre `bg`, `surface`, `surface-sunken`, todos los `tint-*` y `brand-soft`. */
+  --ink-muted: #55655f; /* Texto secundario: descripciones, ayudas, metadatos. ≥5:1 sobre `bg`, `surface`, `surface-sunken` y los `tint-*`. */
+  --brand: #08766b; /* Verde azulado clínico: botón primario, enlaces, estado seleccionado. Como texto sobre `surface`, `bg` y `surface-sunken`. */
+  --brand-strong: #08665d; /* Hover/pressed del botón primario; texto sobre `brand-soft`. */
+  --on-brand: #ffffff; /* Texto e íconos sobre `brand` y `brand-strong` (en oscuro el teal se aclara y el texto pasa a oscuro). */
+  --brand-soft: #d7f0eb; /* Fondo del botón secundario y de chips seleccionados. Texto en `brand-strong`. */
+  --accent: #b33f29; /* Coral cálido: etiquetas 'Nuevo', destacados puntuales, cardio. Como texto sobre `surface`, `bg` y `tint-peach`. Máx. una vez por bloque. */
+  --tint-mint: #dff3ec; /* Tarjeta destacada: bienestar, actividad, prevención. */
+  --tint-sky: #dfecf8; /* Tarjeta destacada: respiratorio, sueño, hidratación. */
+  --tint-lavender: #ebe6f7; /* Tarjeta destacada: salud mental, neurología, descanso. */
+  --tint-peach: #fde6dd; /* Tarjeta destacada: cardiovascular, nutrición, calor humano. */
+  --tint-butter: #fbf0cf; /* Tarjeta destacada: educación, recordatorios, logros. */
+  --success: #1e7448; /* Estado 'en rango / normal' como texto o ícono sobre `surface` y `success-soft`. Siempre con palabra o ícono, nunca solo color. */
+  --success-soft: #def2e6; /* Fondo de badges y alertas de éxito. */
+  --warning: #8a5300; /* Estado 'atención / revisar' como texto o ícono sobre `surface` y `warning-soft`. */
+  --warning-soft: #fdf0d5; /* Fondo de badges y alertas de atención. */
+  --danger: #c0301e; /* Estado 'crítico / fuera de rango' y errores de formulario, sobre `surface` y `danger-soft`. Siempre con palabra o ícono. */
+  --danger-soft: #fde3df; /* Fondo de badges y alertas críticas. */
+  --info: #1f5fa6; /* Estado informativo / pendiente, sobre `surface` e `info-soft`. */
+  --info-soft: #e0ebf8; /* Fondo de badges y alertas informativas. */
+  --focus: #1b5fc1; /* Anillo de foco: contorno sólido de 2px con 2px de separación. ≥5:1 sobre todas las superficies y tintes. */
+  --shadow-card: 0 1px 2px rgba(15,29,26,0.04), 0 8px 24px rgba(15,29,26,0.06); /* Tarjetas blancas sobre `bg`. */
+  --shadow-raised: 0 2px 6px rgba(15,29,26,0.06), 0 20px 48px rgba(15,29,26,0.12); /* Hover de tarjeta, popovers, modales. */
+}
+[data-theme="dark"] {
+  --bg: #0b1211;
+  --surface: #141c1a;
+  --surface-sunken: #1d2826;
+  --surface-raised: #38453f;
+  --hairline: #2a3633;
+  --nav-glass: rgba(11,18,17,0.72);
+  --ink: #edf3f1;
+  --ink-muted: #9aaba6;
+  --brand: #3fc7b5;
+  --brand-strong: #6fd9ca;
+  --on-brand: #052420;
+  --brand-soft: #123a35;
+  --accent: #ff8a73;
+  --tint-mint: #13302a;
+  --tint-sky: #132638;
+  --tint-lavender: #221d38;
+  --tint-peach: #36201a;
+  --tint-butter: #2f2812;
+  --success: #5fd08e;
+  --success-soft: #133022;
+  --warning: #f2b84b;
+  --warning-soft: #33270e;
+  --danger: #ff7a66;
+  --danger-soft: #3a1a16;
+  --info: #7db3f5;
+  --info-soft: #142a42;
+  --focus: #7cb7ff;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.40), 0 8px 24px rgba(0,0,0,0.30);
+  --shadow-raised: 0 2px 6px rgba(0,0,0,0.50), 0 20px 48px rgba(0,0,0,0.45);
+}
+:root {
+  --space-1: 4px; /* Separación ícono–texto, punto de estado. */
+  --space-2: 8px; /* Gap entre elementos inline, padding vertical de badges. */
+  --space-3: 12px; /* Gap entre label y campo, entre botones. */
+  --space-4: 16px; /* Padding de campos y botones; gap de grillas compactas. */
+  --space-5: 24px; /* Gap entre tarjetas; padding de tarjetas compactas. */
+  --space-6: 32px; /* Padding de tarjetas destacadas. */
+  --space-7: 48px; /* Separación entre bloques dentro de una sección. */
+  --space-8: 64px; /* Margen lateral de página en escritorio. */
+  --space-9: 96px; /* Separación entre secciones de una landing (respiro generoso). */
+  --radius-sm: 8px; /* Badges cuadrados, tooltips, miniaturas. */
+  --radius-md: 14px; /* Inputs, selects, tarjetas compactas. */
+  --radius-lg: 20px; /* Tarjetas de indicador, paneles. */
+  --radius-xl: 28px; /* Tarjetas destacadas grandes y modales. */
+  --radius-pill: 999px; /* Botones, badges de estado, controles segmentados. */
+  --font-sans: "Figtree", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --text-display: 700 80px/84px var(--font-sans); /* Un solo titular por página: hero de landing o portada de módulo. */
+  --text-title-1: 700 56px/60px var(--font-sans); /* Título de página en web; en móvil baja a `title-2`. */
+  --text-title-2: 700 40px/44px var(--font-sans); /* Encabezado de sección. Admite una segunda frase en `ink-muted` en la misma línea. */
+  --text-title-3: 650 28px/34px var(--font-sans); /* Título de tarjeta destacada y de modal. */
+  --text-headline: 600 21px/28px var(--font-sans); /* Título de tarjeta pequeña, filas de lista destacadas. */
+  --text-body: 400 17px/26px var(--font-sans); /* Texto corrido por defecto. */
+  --text-callout: 400 15px/22px var(--font-sans); /* Texto secundario, descripciones de tarjeta, celdas de tabla. */
+  --text-caption: 500 13px/18px var(--font-sans); /* Pies de foto, notas legales, metadatos, etiquetas de navegación. */
+  --text-eyebrow: 700 12px/16px var(--font-sans); /* Sobretítulo en MAYÚSCULAS sobre `title-3` en tarjetas. En `accent` o `ink-muted`. */
+  --text-metric: 700 44px/48px var(--font-sans); /* Valor principal de un indicador clínico (SpO₂, FC, pasos). Usar cifras tabulares (font-variant-numeric: tabular-nums). */
+  --text-metric-sm: 700 28px/32px var(--font-sans); /* Valor de indicador en tarjetas compactas y tablas resumen. */
+}
+.display {
+  font-family: var(--font-sans);
+  font-size: 80px;
+  line-height: 84px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.title-1 {
+  font-family: var(--font-sans);
+  font-size: 56px;
+  line-height: 60px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+.title-2 {
+  font-family: var(--font-sans);
+  font-size: 40px;
+  line-height: 44px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.title-3 {
+  font-family: var(--font-sans);
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.headline {
+  font-family: var(--font-sans);
+  font-size: 21px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.body {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 26px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.callout {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.caption {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.metric {
+  font-family: var(--font-sans);
+  font-size: 44px;
+  line-height: 48px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.metric-sm {
+  font-family: var(--font-sans);
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+@font-face {
+  font-family: "Figtree";
+  src: url("fonts/Figtree-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Figtree";
+  src: url("fonts/Figtree-Variable-Italic.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: italic;
+  font-display: swap;
+}

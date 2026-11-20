@@ -5,29 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>Coordinación · Ausentismos</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Outfit:wght@600&display=swap">
+  <meta name="theme-color" content="#f4f7f6">
+  <link rel="stylesheet" href="../assets/vital/tokens.css">
+  <link rel="stylesheet" href="../assets/vital/bundle.css">
   <link rel="stylesheet" href="../assets/app.css">
 </head>
 <body>
-<header class="barra">
-  <div class="barra-in">
-    <h1 id="titulo">Coordinación · Ausentismos</h1>
-    <label class="oculto" id="rp-wrap"><span class="solo-lector">Resuelto por</span>
-      <input id="resuelto-por" type="text" maxlength="60" placeholder="Resuelto por (iniciales)" autocomplete="off"></label>
-    <button type="button" class="btn btn-chico btn-claro oculto" id="salir">Salir</button>
+<header class="vt-nav">
+  <div class="vt-nav__inner">
+    <span class="vt-nav__brand" id="titulo">Coordinación</span>
+    <div class="vt-nav__actions">
+      <span class="meta oculto" id="quien"></span>
+      <a class="btn btn-chico" href="../">Volver<span class="solo-escritorio"> a la app</span></a>
+      <button type="button" class="btn btn-chico oculto" id="salir">Salir</button>
+    </div>
   </div>
 </header>
 
-<section id="login" class="login oculto" aria-labelledby="h-login">
-  <h1 id="h-login">Ingreso de coordinación</h1>
-  <form id="login-form" class="tarjeta">
-    <label class="campo"><span>Clave del equipo de coordinación</span><input type="password" id="login-clave" autocomplete="current-password" required></label>
-    <p id="login-error" class="msg-error" role="alert"></p>
-    <button class="btn btn-primario" type="submit">Ingresar</button>
-  </form>
-  <p class="nota"><a href="../">← Volver al calendario público</a></p>
+<section id="sin-permiso" class="login oculto" aria-labelledby="h-sin">
+  <h1 id="h-sin">Solo para coordinación</h1>
+  <p class="aviso aviso-info">Tu cuenta no tiene el rol de coordinación. Si deberías tenerlo, pídeselo a otra persona de coordinación.</p>
+  <p><a class="btn" href="../">Volver a la app</a></p>
 </section>
 
 <div id="app" class="oculto">

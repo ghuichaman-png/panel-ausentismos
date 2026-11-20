@@ -38,7 +38,7 @@ function h_coord_solicitudes(PDO $db, array $p, array $in): array
     $rows = $st->fetchAll();
     $hoy = Reloj::hoy();
     $cupos = [];
-    $diasSt = $db->prepare('SELECT fecha, consumo, fraccion, turno, unidad_turno_id, reemplazo_nombre FROM solicitud_dias WHERE solicitud_id=? ORDER BY fecha, turno');
+    $diasSt = $db->prepare('SELECT fecha, consumo, am, pm, fraccion, turno, unidad_turno_id, reemplazo_nombre FROM solicitud_dias WHERE solicitud_id=? ORDER BY fecha, turno');
     foreach ($rows as &$r) {
         $r['id'] = (int)$r['id'];
         foreach (['sobre_cupo', 'fuera_de_nomina'] as $b) $r[$b] = (bool)$r[$b];
@@ -49,54 +49,47 @@ function h_coord_solicitudes(PDO $db, array $p, array $in): array
         if ($r['jornada'] === 'diurno' && $r['equipo_id']) {
             $eid = (int)$r['equipo_id'];
             if (!isset($cupos[$eid])) $cupos[$eid] = (float)reg_equipo($db, $eid)['cupo_diurno'];
-            $oc = reg_ocupacion($db, $eid, $r['fecha_inicio'], $r['fecha_fin']);
-            foreach ($r['dias'] as $d) $r['ocupacion'][] = ['fecha' => $d['fecha'], 'ocupado' => $oc[$d['fecha']] ?? 0.0, 'cupo' => $cupos[$eid]];
+            $oc = reg_ocupacion_bloques($db, $eid, $r['fecha_inicio'], $r['fecha_fin']);
+            foreach ($r['dias'] as $d) {
+                $b = $oc[$d['fecha']] ?? ['am' => 0.0, 'pm' => 0.0];
+                $r['ocupacion'][] = ['fecha' => $d['fecha'], 'am' => $b['am'], 'pm' => $b['pm'], 'ocupado' => max($b['am'], $b['pm']), 'cupo' => $cupos[$eid]];
+            }
         }
     }
     return ['solicitudes' => $rows, 'hoy' => $hoy, 'limite' => count($rows) >= 300];
 }
 
+/** Nombre de la persona de coordinación con sesión (queda como «Resuelta por»). */
+function mi_nombre(PDO $db): string
+{
+    $st = $db->prepare('SELECT nombre FROM funcionarios WHERE id=?');
+    $st->execute([yo()]);
+    return (string)$st->fetchColumn();
+}
+
 function h_coord_resolver(PDO $db, array $p, array $in): array
 {
-    return reg_resolver($db, (int)$p[1], (string)($in['accion'] ?? ''), (string)($in['motivo'] ?? ''), (string)($in['resuelto_por'] ?? ''), ip_cliente());
+    return reg_resolver($db, (int)$p[1], (string)($in['accion'] ?? ''), (string)($in['motivo'] ?? ''), mi_nombre($db), ip_cliente(), yo(),
+                        array_key_exists('es_extra', $in) ? (bool)$in['es_extra'] : true);
 }
 
 function h_coord_revertir(PDO $db, array $p, array $in): array
 {
-    return reg_revertir($db, (int)$p[1], (string)($in['motivo'] ?? ''), (string)($in['resuelto_por'] ?? ''),
-                        !empty($in['acepta_sobre_cupo']), (string)($in['justificacion'] ?? ''), ip_cliente());
+    return reg_revertir($db, (int)$p[1], (string)($in['motivo'] ?? ''), mi_nombre($db),
+                        !empty($in['acepta_sobre_cupo']), (string)($in['justificacion'] ?? ''), ip_cliente(), yo());
 }
 
 function h_coord_anular(PDO $db, array $p, array $in): array
 {
-    return reg_anular($db, (int)$p[1], null, true, (string)($in['resuelto_por'] ?? ''), ip_cliente());
+    return reg_anular($db, (int)$p[1], yo(), true, mi_nombre($db), ip_cliente());
 }
 
-function h_coord_vincular(PDO $db, array $p, array $in): array
+/** Coordinación registra una solicitud en nombre de otra persona (queda auditado quién la creó). */
+function h_coord_en_nombre_de(PDO $db, array $p, array $in): array
 {
-    return tx($db, function () use ($db, $p, $in) {
-        $s = reg_sol($db, (int)$p[1]);
-        if (!empty($in['crear'])) {
-            $st = $db->prepare('SELECT id FROM funcionarios WHERE rut=?');
-            $st->execute([$s['rut']]);
-            $fid = $st->fetchColumn();
-            if (!$fid) {
-                if ($s['jornada'] === 'diurno' && !$s['equipo_id']) throw new ApiError('La solicitud no tiene equipo.', 422);
-                $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,activo) VALUES (?,?,?,?,?,?,1)')
-                   ->execute([$s['nombre'], texto_norm($s['nombre']), $s['rut'], $s['jornada'], $s['equipo_id'], $s['calidad']]);
-                $fid = $db->lastInsertId();
-            }
-        } else {
-            $fid = (int)($in['funcionario_id'] ?? 0);
-            $st = $db->prepare('SELECT rut FROM funcionarios WHERE id=?');
-            $st->execute([$fid]);
-            if (!$st->fetchColumn()) throw new ApiError('Esa persona no existe en la nómina.', 422);
-        }
-        $db->prepare('UPDATE solicitudes SET funcionario_id=?, fuera_de_nomina=0 WHERE id=?')->execute([(int)$fid, $s['id']]);
-        $db->prepare('UPDATE solicitudes SET funcionario_id=?, fuera_de_nomina=0 WHERE rut=? AND funcionario_id IS NULL')->execute([(int)$fid, $s['rut']]);
-        auditar($db, 'vincular', (int)$s['id'], "{$s['codigo']} → funcionario $fid", ip_cliente());
-        return ['funcionario_id' => (int)$fid];
-    });
+    if (empty($in['funcionario_id'])) throw new ApiError('Elige a la persona.', 422);
+    $r = reg_crear($db, $in, ['ip' => ip_cliente(), 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'cfg' => cfg(), 'creada_por' => yo(), 'por_coordinacion' => true]);
+    return ['ok' => true] + $r;
 }
 
 function h_coord_calendario(PDO $db, array $p, array $in): array
@@ -220,7 +213,10 @@ function nomina_validar(PDO $db, array $r): array
         if (!$e) throw new ApiError('El equipo no existe.', 422);
         if ($jornada === 'diurno' && !$e['tiene_diurnos']) throw new ApiError('Ese equipo no tiene personal diurno.', 422);
     }
-    return ['nombre' => $nombre, 'rut' => $rut, 'jornada' => $jornada, 'calidad' => $calidad, 'equipo_id' => $equipo];
+    $v = ['nombre' => $nombre, 'rut' => $rut, 'jornada' => $jornada, 'calidad' => $calidad, 'equipo_id' => $equipo];
+    // Teléfono opcional; si la clave no viene (p. ej. CSV antiguo sin esa columna), no se toca el guardado.
+    if (array_key_exists('telefono', $r)) $v['telefono'] = telefono_normalizar((string)($r['telefono'] ?? ''));
+    return $v;
 }
 
 function h_coord_nomina_listar(PDO $db, array $p, array $in): array
@@ -230,11 +226,22 @@ function h_coord_nomina_listar(PDO $db, array $p, array $in): array
     $q = texto_norm((string)($_GET['q'] ?? ''));
     if ($q !== '') { $w[] = "(f.nombre_norm LIKE ? ESCAPE '\\' OR f.rut LIKE ? ESCAPE '\\')"; $l = '%' . addcslashes($q, '%_\\') . '%'; $par[] = $l; $par[] = $l; }
     if (($_GET['activo'] ?? '') !== '') { $w[] = 'f.activo=?'; $par[] = (int)$_GET['activo']; }
-    $st = $db->prepare('SELECT f.id,f.nombre,f.rut,f.jornada,f.equipo_id,e.nombre AS equipo,f.calidad,f.activo
-        FROM funcionarios f LEFT JOIN equipos e ON e.id=f.equipo_id WHERE ' . implode(' AND ', $w) . ' ORDER BY f.nombre LIMIT 1000');
+    $st = $db->prepare('SELECT f.id,f.nombre,f.rut,f.jornada,f.equipo_id,e.nombre AS equipo,f.calidad,f.telefono,f.rol,f.activo,
+            c.pin_hash IS NOT NULL AS tiene_pin, c.codigo_vence, c.bloqueado_hasta
+        FROM funcionarios f LEFT JOIN equipos e ON e.id=f.equipo_id LEFT JOIN credenciales c ON c.funcionario_id=f.id
+        WHERE ' . implode(' AND ', $w) . ' ORDER BY f.nombre LIMIT 1000');
     $st->execute($par);
     $rows = $st->fetchAll();
-    foreach ($rows as &$r) { $r['id'] = (int)$r['id']; $r['activo'] = (bool)$r['activo']; }
+    $ahora = Reloj::stamp();
+    foreach ($rows as &$r) {
+        $r['id'] = (int)$r['id']; $r['activo'] = (bool)$r['activo'];
+        // Estado de la cuenta, sin exponer hashes: sin_cuenta · codigo_pendiente · codigo_vencido · activa · bloqueada
+        $b = $r['bloqueado_hasta'];
+        $r['cuenta'] = ($b === 'manual' || ($b !== null && $ahora < $b)) ? 'bloqueada'
+            : ((int)$r['tiene_pin'] ? 'activa'
+            : ($r['codigo_vence'] !== null ? ($ahora <= $r['codigo_vence'] ? 'codigo_pendiente' : 'codigo_vencido') : 'sin_cuenta'));
+        unset($r['tiene_pin'], $r['bloqueado_hasta']);
+    }
     return ['funcionarios' => $rows];
 }
 
@@ -249,13 +256,14 @@ function h_coord_nomina_guardar(PDO $db, array $p, array $in): array
         $otro = $st->fetchColumn();
         if ($otro && (int)$otro !== $id) throw new ApiError('Ya existe alguien con ese RUT en la nómina.', 409);
         if ($id === null) {
-            $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,activo) VALUES (?,?,?,?,?,?,?)')
-               ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $activo]);
+            $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,telefono,activo) VALUES (?,?,?,?,?,?,?,?)')
+               ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $v['telefono'] ?? null, $activo]);
             $id = (int)$db->lastInsertId();
             auditar($db, 'nomina_crear', null, "{$v['nombre']}", ip_cliente());
         } else {
             $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,rut=?,jornada=?,equipo_id=?,calidad=?,activo=? WHERE id=?')
                ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $activo, $id]);
+            if (array_key_exists('telefono', $v)) $db->prepare('UPDATE funcionarios SET telefono=? WHERE id=?')->execute([$v['telefono'], $id]);
             auditar($db, 'nomina_editar', null, "{$v['nombre']} activo=$activo", ip_cliente());
         }
         return ['id' => $id];
@@ -264,8 +272,19 @@ function h_coord_nomina_guardar(PDO $db, array $p, array $in): array
 
 function h_coord_nomina_importar(PDO $db, array $p, array $in): array
 {
-    $csv = (string)($in['csv'] ?? '');
-    $csv = preg_replace('/^\xEF\xBB\xBF/', '', $csv);
+    $res = tx($db, fn() => nomina_importar($db, (string)($in['csv'] ?? '')));
+    unset($res['ruts']);
+    return $res;
+}
+
+/**
+ * Upsert de la nómina desde un CSV (texto). Por RUT: crea a quien no está y actualiza a quien está.
+ * Nunca borra ni desactiva a quien no viene en el archivo. Debe llamarse dentro de una transacción.
+ * Devuelve ['creados', 'actualizados', 'sin_cambios', 'errores' => [['linea','motivo']], 'ruts' => RUT válidos del archivo].
+ */
+function nomina_importar(PDO $db, string $csv): array
+{
+    $csv = (string)preg_replace('/^\xEF\xBB\xBF/', '', $csv);
     if (trim($csv) === '') throw new ApiError('El archivo está vacío.', 422);
     $primera = strtok($csv, "\n") ?: '';
     $delim = substr_count($primera, ';') > substr_count($primera, ',') ? ';' : ',';
@@ -275,50 +294,127 @@ function h_coord_nomina_importar(PDO $db, array $p, array $in): array
     $cab = fgetcsv($fh, 0, $delim, '"', '\\') ?: [];
     $cab = array_map(fn($c) => texto_norm((string)$c), $cab);
     foreach (['nombre', 'rut', 'jornada', 'equipo', 'calidad'] as $req) {
-        if (!in_array($req, $cab, true)) throw new ApiError("Falta la columna «$req». Columnas esperadas: nombre,rut,jornada,equipo,calidad.", 422);
+        if (!in_array($req, $cab, true)) throw new ApiError("Falta la columna «{$req}». Columnas esperadas: nombre,rut,jornada,equipo,calidad.", 422);
     }
     $eqMap = [];
     foreach ($db->query('SELECT id,nombre FROM equipos') as $e) $eqMap[texto_norm($e['nombre'])] = (int)$e['id'];
 
-    $res = ['creados' => 0, 'actualizados' => 0, 'errores' => []];
+    $res = ['creados' => 0, 'actualizados' => 0, 'sin_cambios' => 0, 'errores' => []];
     $linea = 1;
-    tx($db, function () use ($db, $fh, $cab, $delim, $eqMap, &$res, &$linea) {
-        while (($f = fgetcsv($fh, 0, $delim, '"', '\\')) !== false) {
-            $linea++;
-            if (count($f) === 1 && trim((string)$f[0]) === '') continue;
-            if ($linea > 3001) { $res['errores'][] = ['linea' => $linea, 'motivo' => 'Máximo 3000 filas por importación.']; break; }
-            $row = [];
-            foreach ($cab as $i => $c) $row[$c] = trim((string)($f[$i] ?? ''));
-            try {
-                $eqNombre = texto_norm($row['equipo']);
-                $equipoId = null;
-                if ($eqNombre !== '') {
-                    if (!isset($eqMap[$eqNombre])) throw new ApiError('Equipo «' . $row['equipo'] . '» no existe.', 422);
-                    $equipoId = $eqMap[$eqNombre];
-                }
-                $cal = texto_norm($row['calidad']);
-                if ($cal === 'honorario') $cal = 'honorarios';
-                $v = nomina_validar($db, ['nombre' => $row['nombre'], 'rut' => $row['rut'], 'jornada' => texto_norm($row['jornada']),
-                                          'calidad' => $cal, 'equipo_id' => $equipoId]);
-                $st = $db->prepare('SELECT id FROM funcionarios WHERE rut=?');
-                $st->execute([$v['rut']]);
-                $existe = $st->fetchColumn();
-                if ($existe) {
-                    $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,jornada=?,equipo_id=?,calidad=?,activo=1 WHERE id=?')
-                       ->execute([$v['nombre'], texto_norm($v['nombre']), $v['jornada'], $v['equipo_id'], $v['calidad'], $existe]);
-                    $res['actualizados']++;
-                } else {
-                    $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,activo) VALUES (?,?,?,?,?,?,1)')
-                       ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad']]);
-                    $res['creados']++;
-                }
-            } catch (ApiError $e) {
-                $res['errores'][] = ['linea' => $linea, 'motivo' => $e->getMessage()];
+    $vistos = [];
+    while (($f = fgetcsv($fh, 0, $delim, '"', '\\')) !== false) {
+        $linea++;
+        if (count($f) === 1 && trim((string)$f[0]) === '') continue;
+        if ($linea > 3001) { $res['errores'][] = ['linea' => $linea, 'motivo' => 'Máximo 3000 filas por importación.']; break; }
+        $row = [];
+        foreach ($cab as $i => $c) $row[$c] = trim((string)($f[$i] ?? ''));
+        try {
+            $eqNombre = texto_norm($row['equipo']);
+            $equipoId = null;
+            if ($eqNombre !== '') {
+                if (!isset($eqMap[$eqNombre])) throw new ApiError('Equipo «' . $row['equipo'] . '» no existe.', 422);
+                $equipoId = $eqMap[$eqNombre];
+            }
+            $cal = texto_norm($row['calidad']);
+            if ($cal === 'honorario') $cal = 'honorarios';
+            $datos = ['nombre' => $row['nombre'], 'rut' => $row['rut'], 'jornada' => texto_norm($row['jornada']),
+                      'calidad' => $cal, 'equipo_id' => $equipoId];
+            if (array_key_exists('telefono', $row)) $datos['telefono'] = $row['telefono']; // columna opcional
+            $v = nomina_validar($db, $datos);
+            if (isset($vistos[$v['rut']])) throw new ApiError("RUT repetido en el archivo (ya venía en la línea {$vistos[$v['rut']]}).", 422);
+            $vistos[$v['rut']] = $linea;
+            $st = $db->prepare('SELECT * FROM funcionarios WHERE rut=?');
+            $st->execute([$v['rut']]);
+            $ex = $st->fetch();
+            if ($ex) {
+                $igual = $ex['nombre'] === $v['nombre'] && $ex['jornada'] === $v['jornada'] && (int)$ex['equipo_id'] === (int)$v['equipo_id']
+                    && $ex['calidad'] === $v['calidad'] && (int)$ex['activo'] === 1
+                    && (!array_key_exists('telefono', $v) || ($ex['telefono'] ?? null) === $v['telefono']);
+                if ($igual) { $res['sin_cambios']++; continue; }
+                $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,jornada=?,equipo_id=?,calidad=?,activo=1 WHERE id=?')
+                   ->execute([$v['nombre'], texto_norm($v['nombre']), $v['jornada'], $v['equipo_id'], $v['calidad'], $ex['id']]);
+                if (array_key_exists('telefono', $v)) $db->prepare('UPDATE funcionarios SET telefono=? WHERE id=?')->execute([$v['telefono'], $ex['id']]);
+                $res['actualizados']++;
+            } else {
+                $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,telefono,activo) VALUES (?,?,?,?,?,?,?,1)')
+                   ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $v['telefono'] ?? null]);
+                $res['creados']++;
+            }
+        } catch (ApiError $e) {
+            $res['errores'][] = ['linea' => $linea, 'motivo' => $e->getMessage()];
+        }
+    }
+    $res['ruts'] = array_keys($vistos);
+    auditar($db, 'nomina_importar', null, "creados={$res['creados']} actualizados={$res['actualizados']} errores=" . count($res['errores']),
+            function_exists('ip_cliente') ? ip_cliente() : '', yo_o_null());
+    return $res;
+}
+
+// ───────────────────────── Tipos de ausentismo ─────────────────────────
+
+function h_coord_tipos_listar(PDO $db, array $p, array $in): array
+{
+    return ['tipos' => tipos_listar($db, false)];
+}
+
+/**
+ * Crea o edita un tipo (SPEC-v2 §3.5). La sigla es única e inmutable. Los precargados (FL, ADM, CT, LIC) solo
+ * cambian nombre, etiqueta, orden y activo. Nada se borra: se desactiva. Cambiar un tipo no recalcula solicitudes.
+ */
+function h_coord_tipo_guardar(PDO $db, array $p, array $in): array
+{
+    $id = isset($p[1]) && (int)$p[1] > 0 ? (int)$p[1] : null;
+    $nombre = limpiar($in['nombre'] ?? '', 60);
+    $etiqueta = limpiar($in['etiqueta_publica'] ?? '', 30);
+    if (mb_strlen($nombre) < 2) throw new ApiError('Falta el nombre del tipo.', 422);
+    if ($etiqueta === '') throw new ApiError('Falta la etiqueta que verán los demás en el calendario.', 422);
+    $b = fn($k, $def) => array_key_exists($k, $in) ? (int)(bool)$in[$k] : $def;
+    $activo = $b('activo', 1);
+    $orden = (int)($in['orden'] ?? 50);
+    return tx($db, function () use ($db, $id, $in, $nombre, $etiqueta, $b, $activo, $orden) {
+        if ($id !== null) {
+            $st = $db->prepare('SELECT * FROM tipos_ausentismo WHERE id=?');
+            $st->execute([$id]);
+            $t = $st->fetch();
+            if (!$t) throw new ApiError('Ese tipo no existe.', 404);
+            if ((int)$t['precargado']) {
+                $db->prepare('UPDATE tipos_ausentismo SET nombre=?, etiqueta_publica=?, activo=?, orden=? WHERE id=?')->execute([$nombre, $etiqueta, $activo, $orden, $id]);
+                auditar($db, 'tipo_guardar', null, "{$t['sigla']} (precargado): nombre, etiqueta, activo=$activo", ip_cliente(), yo_o_null());
+                return ['id' => $id];
             }
         }
-        auditar($db, 'nomina_importar', null, "creados={$res['creados']} actualizados={$res['actualizados']} errores=" . count($res['errores']), ip_cliente());
+        $regla = $in['regla_cupo'] ?? 'normal';
+        $saldo = $in['saldo'] ?? null;
+        $loPide = $in['lo_pide'] ?? 'funcionario';
+        $rango = $in['rango'] ?? 'rango';
+        if (!es_en($regla, ['normal', 'fl'])) throw new ApiError('Regla de cupo inválida.', 422);
+        if ($saldo !== null && $saldo !== '' && !es_en($saldo, ['FL', 'ADM'])) throw new ApiError('El saldo debe ser FL, ADM o ninguno.', 422);
+        if (!es_en($loPide, ['funcionario', 'coordinacion'])) throw new ApiError('Indica quién lo pide.', 422);
+        if (!es_en($rango, ['un_dia', 'rango'])) throw new ApiError('Indica si es de un día o de un rango de fechas.', 422);
+        $vals = [$nombre, $b('consume_cupo', 1), $regla, $saldo ?: null, $b('medio_dia', 0), $loPide, $b('exige_reemplazo', 1), $rango, $etiqueta, $activo, $orden];
+        if ($id === null) {
+            $sigla = strtoupper(trim((string)($in['sigla'] ?? '')));
+            if (!preg_match('/^[A-Z0-9]{2,6}$/', $sigla)) throw new ApiError('La sigla debe tener de 2 a 6 letras o números, sin espacios.', 422);
+            $st = $db->prepare('SELECT 1 FROM tipos_ausentismo WHERE sigla=?');
+            $st->execute([$sigla]);
+            if ($st->fetchColumn()) throw new ApiError("Ya existe un tipo con la sigla $sigla.", 409);
+            $db->prepare('INSERT INTO tipos_ausentismo (nombre,consume_cupo,regla_cupo,saldo,medio_dia,lo_pide,exige_reemplazo,rango,etiqueta_publica,activo,orden,sigla)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')->execute([...$vals, $sigla]);
+            $id = (int)$db->lastInsertId();
+            auditar($db, 'tipo_crear', null, "$sigla: $nombre", ip_cliente(), yo_o_null());
+        } else {
+            $db->prepare('UPDATE tipos_ausentismo SET nombre=?,consume_cupo=?,regla_cupo=?,saldo=?,medio_dia=?,lo_pide=?,exige_reemplazo=?,rango=?,etiqueta_publica=?,activo=?,orden=? WHERE id=?')
+               ->execute([...$vals, $id]);
+            auditar($db, 'tipo_guardar', null, "#$id: $nombre", ip_cliente(), yo_o_null());
+        }
+        return ['id' => $id];
     });
-    return $res;
+}
+
+/** Persona con sesión, o null si se llama fuera de una petición (pruebas, consola). */
+function yo_o_null(): ?int
+{
+    return function_exists('sesion_actual') && isset($_COOKIE['aus_s']) ? (sesion_actual()['funcionario_id'] ?? null) : null;
 }
 
 // ───────────────────────── Equipos y feriados ─────────────────────────
@@ -376,7 +472,7 @@ function h_coord_feriados_guardar(PDO $db, array $p, array $in): array
             if ($l === '') continue;
             if (preg_match('/^(\d{4})-(\d{2})-(\d{2})\s*[;,\-\s]?\s*(.*)$/u', $l, $m)) $f = "$m[1]-$m[2]-$m[3]";
             elseif (preg_match('/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\s*[;,\-\s]?\s*(.*)$/u', $l, $m)) $f = sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
-            else throw new ApiError("No entendí la línea: «$l». Usa «aaaa-mm-dd Nombre» o «dd-mm-aaaa Nombre».", 422);
+            else throw new ApiError("No entendí la línea: «{$l}». Usa «aaaa-mm-dd Nombre» o «dd-mm-aaaa Nombre».", 422);
             if (!fecha_ok($f)) throw new ApiError("Fecha inválida: $l", 422);
             $items[] = [$f, limpiar($m[4], 80) ?: 'Feriado'];
         }
@@ -398,4 +494,48 @@ function h_coord_feriados_eliminar(PDO $db, array $p, array $in): array
     $db->prepare('DELETE FROM feriados WHERE fecha=?')->execute([$in['fecha']]);
     auditar($db, 'feriado_eliminar', null, $in['fecha'], ip_cliente());
     return ['ok' => true];
+}
+
+// ───────────────────────── Vistas «Hoy» y «Registro de cambios» (SPEC-v2 §6.2.10–11) ─────────────────────────
+
+/** Lo que coordinación necesita al abrir el panel: quién falta hoy, turnos sin cubrir y pendientes que vencen pronto. */
+function h_coord_hoy(PDO $db, array $p, array $in): array
+{
+    $hoy = Reloj::hoy();
+    $st = $db->prepare("SELECT f.nombre, e.nombre AS equipo, COALESCE(t.etiqueta_publica, s.tipo) AS etiqueta, MAX(d.am) AS am, MAX(d.pm) AS pm, s.id
+        FROM solicitud_dias d JOIN solicitudes s ON s.id=d.solicitud_id JOIN funcionarios f ON f.id=s.funcionario_id
+        LEFT JOIN equipos e ON e.id=f.equipo_id LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo
+        WHERE d.fecha=? AND s.estado='autorizada' AND COALESCE(t.es_cambio_turno,0)=0
+        GROUP BY s.id ORDER BY f.nombre");
+    $st->execute([$hoy]);
+    $aus = [];
+    foreach ($st->fetchAll() as $r) {
+        $media = ((int)$r['am'] && !(int)$r['pm']) ? ' ½ AM' : ((!(int)$r['am'] && (int)$r['pm']) ? ' ½ PM' : '');
+        $aus[] = ['solicitud_id' => (int)$r['id'], 'nombre' => $r['nombre'], 'equipo' => $r['equipo'], 'etiqueta' => $r['etiqueta'] . $media];
+    }
+    $get = $_GET;
+    $_GET = ['desde' => $hoy, 'hasta' => fecha_add($hoy, 7)];
+    $sin = h_coord_turnos_sin_cubrir($db, [], [])['turnos'];
+    $_GET = $get;
+    $st = $db->prepare("SELECT s.*, t.etiqueta_publica AS etiqueta, f.nombre FROM solicitudes s JOIN funcionarios f ON f.id=s.funcionario_id
+        LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo WHERE s.estado='pendiente' AND s.fecha_inicio<=? ORDER BY s.fecha_inicio, s.id");
+    $st->execute([fecha_add($hoy, 3)]);
+    $pend = array_map(fn($s) => sol_publica($s) + ['vencida' => $s['fecha_inicio'] < $hoy], $st->fetchAll());
+    return ['hoy' => $hoy, 'ausentes' => $aus, 'sin_cubrir' => $sin, 'pendientes_pronto' => $pend];
+}
+
+/** Registro de cambios: últimas acciones con su autor; filtro de texto sin importar tildes ni mayúsculas. */
+function h_coord_auditoria(PDO $db, array $p, array $in): array
+{
+    $q = texto_norm(limpiar($_GET['q'] ?? '', 80));
+    $rows = $db->query("SELECT a.id, a.fecha, a.accion, a.detalle, a.solicitud_id, f.nombre AS quien
+        FROM auditoria a LEFT JOIN funcionarios f ON f.id=a.funcionario_id ORDER BY a.id DESC LIMIT 3000")->fetchAll();
+    $out = [];
+    foreach ($rows as $r) {
+        if ($q !== '' && !str_contains(texto_norm($r['accion'] . ' ' . $r['detalle'] . ' ' . ($r['quien'] ?? '')), $q)) continue;
+        $r['quien'] = $r['quien'] ?? 'Sistema';
+        $out[] = $r;
+        if (count($out) >= 300) break;
+    }
+    return ['registros' => $out];
 }
