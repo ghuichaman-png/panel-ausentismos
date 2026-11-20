@@ -225,8 +225,9 @@ input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--brand); fl
 dialog { border: 0; border-radius: var(--radius-xl); padding: var(--space-6); max-width: min(560px, 94vw); max-height: 90vh; overflow: auto; background: var(--surface); color: var(--ink); box-shadow: var(--shadow-raised); }
 dialog::backdrop { background: rgba(15, 29, 26, .4); }
 dialog h2 { margin-bottom: var(--space-4); }
-.tabs { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-5); display: flex; gap: var(--space-4); flex-wrap: wrap; }
-.tabs button { min-height: 44px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: none; font: inherit; font-size: 15px; font-weight: 500; color: var(--ink-muted); cursor: pointer; white-space: nowrap; }
+.tabs { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-5); display: flex; gap: var(--space-3); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { min-height: 44px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: none; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink-muted); cursor: pointer; white-space: nowrap; }
 .tabs button:hover { color: var(--ink); }
 .tabs button[aria-current="page"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--brand); }
 @media (max-width: 767px) { .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .tabs::-webkit-scrollbar { display: none; } }
@@ -252,3 +253,10 @@ details > summary { cursor: pointer; min-height: 44px; display: flex; align-item
 @media (max-width: 767px) { #quien { display: none; } .vt-nav__brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; } }
 .grilla-hoy .tarjeta.vista { gap: var(--space-3); }
 @media (max-width: 767px) { .solo-escritorio { display: none; } }
+
+/* Coordinación: aire entre los bloques de cada sección (título, botones, filtros, resultados) */
+#sec > * + * { margin-top: var(--space-4); }
+#sec > h1 + .nota { margin-top: var(--space-2); }
+@media (min-width: 1024px) { .tabs { padding: 0 var(--space-8); } }
+/* «Volver a la app»: el texto extra no es un elemento aparte del botón (evita el espacio doble) */
+@media (min-width: 768px) { .btn .solo-escritorio { display: contents; } }

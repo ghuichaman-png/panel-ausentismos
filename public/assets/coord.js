@@ -7,7 +7,7 @@
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
   const S = { equipos: [], sec: 'hoy', cal: { mes: null, vista: null } };
 
-  const SECCIONES = [['hoy', 'Hoy'], ['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['sal', 'Saldos'], ['tip', 'Tipos'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['aud', 'Registro de cambios'], ['exp', 'Exportar y respaldo']];
+  const SECCIONES = [['hoy', 'Hoy'], ['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['sal', 'Saldos'], ['tip', 'Tipos'], ['eq', 'Equipos'], ['fer', 'Feriados'], ['aud', 'Registro'], ['exp', 'Respaldo']];
 
   // ───────── Sesión (la de la persona; el ingreso está en la app principal) ─────────
   const api = AUS.api;
