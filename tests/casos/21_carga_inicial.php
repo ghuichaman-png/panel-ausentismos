@@ -79,7 +79,8 @@ prueba('Carga inicial --codigos: archivo local fuera de la app; repetir solo da 
     [$cod, $out] = correrCarga($app, ['--csv=' . $csv, '--codigos', '--salida=' . $dirCod]);
     $arch = glob($dirCod . '/codigos-*.csv');
     chequear($cod === 0 && count($arch) === 1, 'escribe un archivo de códigos: ' . $out);
-    $lineas = array_values(array_filter(explode("\n", (string)file_get_contents($arch[0] ?? ''))));
+    $archPrimero = $arch[0] ?? '';
+    $lineas = array_values(array_filter(explode("\n", (string)file_get_contents($archPrimero))));
     chequear(count($lineas) === 3 && preg_match('/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/', $lineas[1]) === 1, 'cabecera + 2 códigos');
     chequear(!preg_match('/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/', $out), 'los códigos no se muestran en pantalla');
     // Ana activa su cuenta; Carla no
@@ -95,8 +96,8 @@ prueba('Carga inicial --codigos: archivo local fuera de la app; repetir solo da 
     chequear($cod === 0 && str_contains($out, 'código vigente') && count(glob($dirCod . '/codigos-*.csv')) === 1, 'con un código vigente sin usar, avisa y no lo reemplaza: ' . $out);
     [$cod, $out] = correrCarga($app, ['--csv=' . $csv, '--codigos', '--reemplazar-vigentes', '--salida=' . $dirCod]);
     $arch = glob($dirCod . '/codigos-*.csv');
-    usort($arch, fn($a, $b) => filemtime($a) <=> filemtime($b) ?: strcmp($a, $b));
-    $nuevo = (string)file_get_contents(end($arch));
+    $nuevos = array_values(array_diff($arch, [$archPrimero]));          // el archivo recién creado (puede llevar sufijo -2)
+    $nuevo = (string)file_get_contents($nuevos[0] ?? '');
     chequear(count($arch) === 2 && substr_count($nuevo, "\n") === 2 && !str_contains($nuevo, $nombreAna), 'con --reemplazar-vigentes: solo Carla (Ana ya activó): ' . $out);
     [$cod, $out] = correrCarga($app, ['--csv=' . $csv, '--codigos', '--salida=' . $app]);
     chequear($cod !== 0 && str_contains($out, 'fuera de la carpeta de la app'), 'se niega a escribir códigos dentro de la app: ' . $out);
