@@ -68,6 +68,21 @@ prueba('Privacidad: la búsqueda de nómina y el calendario nunca devuelven tel�
     $txt = json_encode($b, JSON_UNESCAPED_UNICODE);
     chequear(count($b['resultados']) === 1, 'encuentra a la persona');
     chequear(!str_contains($txt, '912345678') && !str_contains($txt, '12345678-5') && !str_contains($txt, 'honorarios'), 'sin teléfono, RUT ni calidad: ' . $txt);
+    // Calendario (SPEC-v2 §9): ni RUT, calidad, teléfono, comentarios ni justificaciones de sobre cupo
+    $beto = (int)$db->query("SELECT id FROM funcionarios WHERE rut='12345678-5'")->fetchColumn();
+    $c1 = mk($db, 'Uno Lleno', 'diurno', 'H7'); $c2 = mk($db, 'Dos Lleno', 'diurno', 'H7');
+    crear($db, ['funcionario_id' => $c1, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'completo']);
+    crear($db, ['funcionario_id' => $c2, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'completo']);
+    $r = crear($db, ['funcionario_id' => $beto, 'tipo' => 'ADM', 'fecha_inicio' => '2026-12-10', 'fraccion' => 'completo',
+                     'acepta_sobre_cupo' => true, 'justificacion' => 'JUSTIFICACION-SECRETA', 'comentario' => 'COMENTARIO-PRIVADO']);
+    chequear(!empty($r['sobre_cupo']), 'quedó sobre cupo con justificación');
+    $_GET['mes'] = '2026-12';
+    $cal = json_encode(h_calendario($db, [], []), JSON_UNESCAPED_UNICODE);
+    unset($_GET['mes']);
+    chequear(str_contains($cal, 'Beto Dos'), 'el calendario muestra a la persona');
+    foreach (['912345678', '12345678-5', 'honorarios', 'JUSTIFICACION-SECRETA', 'COMENTARIO-PRIVADO', '1.2.3.4'] as $x) {
+        chequear(!str_contains($cal, $x), "el calendario no expone «{$x}»");
+    }
 });
 
 prueba('Bug (encontrado en la etapa 1): los mensajes de error del CSV y de feriados muestran el dato que falló', function () {
