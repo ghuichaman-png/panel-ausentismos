@@ -5,20 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Ausentismos · Kinesiología HPM</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Outfit:wght@600&display=swap">
+  <meta name="theme-color" content="#f4f7f6">
+  <link rel="stylesheet" href="assets/vital/tokens.css">
+  <link rel="stylesheet" href="assets/vital/bundle.css">
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-<header class="barra oculto" id="barra">
-  <div class="barra-in">
-    <img id="logo" class="oculto" alt="">
-    <h1 id="titulo">Ausentismos · Kinesiología HPM</h1>
-    <a class="btn btn-primario btn-grande" href="#/pedir">Pedir días</a>
+<header class="vt-nav oculto" id="barra">
+  <div class="vt-nav__inner">
+    <a class="vt-nav__brand" href="#/"><img id="logo" class="oculto" alt="" height="22"><span id="titulo">Ausentismos · Kinesiología HPM</span></a>
+    <div class="vt-nav__actions"><a class="btn btn-primario" href="#/pedir">Pedir días</a></div>
   </div>
 </header>
-<nav class="nav oculto" aria-label="Secciones" id="nav">
+<nav class="ap-tabs ap-abajo oculto" aria-label="Secciones" id="nav">
   <a href="#/" id="nav-cal">Calendario</a>
   <a href="#/mis" id="nav-mis">Mis solicitudes</a>
   <a href="#/turnos" id="nav-turnos">Mis turnos</a>
@@ -47,7 +46,7 @@
       <label class="campo oculto" id="i-w-pin2"><span>Repite el PIN</span>
         <input id="i-pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password"></label>
       <p class="ayuda oculto" id="i-ayuda-activar">Coordinación te entrega el código. Elige un PIN de 6 números que no sea fácil de adivinar (ni 123456 ni parte de tu RUT).</p>
-      <label class="opcion"><input type="checkbox" id="i-compartido"><span>Este es un computador compartido</span></label>
+      <label class="check"><input type="checkbox" id="i-compartido"><span>Este es un computador compartido</span></label>
       <p class="ayuda">En un computador compartido la sesión se cierra sola tras 30 minutos sin uso. En tu celular queda abierta.</p>
       <p id="i-error" class="msg-error" role="alert"></p>
       <button type="submit" class="btn btn-primario btn-grande" id="i-enviar">Ingresar</button>
@@ -62,9 +61,16 @@
       <h2 id="c-titulo" aria-live="polite"></h2>
       <button type="button" class="btn" id="c-sig" aria-label="Mes siguiente">›</button>
       <button type="button" class="btn" id="c-hoy">Hoy</button>
-      <label class="solo-lector" for="c-vista">Ver</label>
+    </div>
+    <div class="cal-vista">
+      <div class="opciones" role="radiogroup" aria-label="Qué ver" id="c-modo">
+        <label class="opcion"><input type="radio" name="c-modo" value="equipo"><span>Equipo</span></label>
+        <label class="opcion"><input type="radio" name="c-modo" value="todos"><span>Todos</span></label>
+        <label class="opcion"><input type="radio" name="c-modo" value="turn"><span>Turnantes</span></label>
+      </div>
+      <label class="solo-lector" for="c-vista">Equipo</label>
       <select id="c-vista"></select>
-      <button type="button" class="btn no-imprimir" id="c-imprimir">Imprimir</button>
+      <button type="button" class="btn btn-chico no-imprimir" id="c-imprimir">Imprimir</button>
     </div>
     <div id="c-error" class="msg-error" role="alert"></div>
     <div id="c-leyenda"></div>
@@ -112,7 +118,7 @@
       <div id="f-resumen" class="vista" aria-live="polite"></div>
 
       <div id="f-sobre" class="tarjeta oculto">
-        <label class="opcion"><input type="checkbox" id="fs-acepta"><span>Enviar igualmente como solicitud sobre cupo</span></label>
+        <label class="check"><input type="checkbox" id="fs-acepta"><span>Enviar igualmente como solicitud sobre cupo</span></label>
         <label class="campo oculto" id="fs-wj"><span>Justificación (obligatoria)</span><textarea id="fs-just" maxlength="1000" placeholder="Explica por qué se necesita este día"></textarea></label>
       </div>
 

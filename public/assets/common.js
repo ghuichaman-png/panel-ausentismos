@@ -2,6 +2,17 @@
 (function () {
   'use strict';
   const AUS = (window.AUS = {});
+
+  // Tema oscuro automático (SPEC-v2 §8.2): Vital trae los valores en [data-theme="dark"].
+  const temaOscuro = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const aplicarTema = () => {
+    const oscuro = !!(temaOscuro && temaOscuro.matches);
+    document.documentElement.dataset.theme = oscuro ? 'dark' : 'light';
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = oscuro ? '#0b1211' : '#f4f7f6';
+  };
+  aplicarTema();
+  if (temaOscuro && temaOscuro.addEventListener) temaOscuro.addEventListener('change', aplicarTema);
   AUS.base = document.documentElement.dataset.base || '';
   AUS.csrf = null;
   AUS.hoy = null;
@@ -201,7 +212,7 @@
       const lista = mapa[f] || [];
       const feriado = data.feriados[f];
       const noHabil = AUS.esFinde(f) || !!feriado;
-      let clase = '', est = '', sub = '', aria = '', clic = true;
+      let clase = '', est = '', sub = '', aria = '', clic = true, franjas = null;
 
       if (vista.tipo === 'equipo') {
         if (noHabil) { clase = 'nohabil'; est = feriado ? 'Feriado' : ''; aria = feriado ? 'feriado: ' + feriado : 'no hábil'; clic = false; }
@@ -214,6 +225,9 @@
           if (oc.pend > EPS) { clase += ' pend'; sub = 'pendiente'; }
           if (oc.ceros) sub = (sub ? sub + ' · ' : '') + '+' + oc.ceros + ' sin cupo';
           aria = (e === 'libre' ? 'libre, ' : (amLleno && pmLleno) ? 'lleno, ' : '') + AUS.ariaBloques(oc, eq.cupo_diurno);
+          // Franjas mañana | tarde (apoyo visual; el estado ya va en palabras y en aria-label)
+          franjas = AUS.h('span', { class: 'franjas', 'aria-hidden': 'true' },
+            AUS.h('span', { class: 'franja f-' + AUS.estadoCupo(oc.am, eq.cupo_diurno) }), AUS.h('span', { class: 'franja f-' + AUS.estadoCupo(oc.pm, eq.cupo_diurno) }));
           if (oc.pend > EPS) aria += ', con solicitudes pendientes';
           if (oc.ceros) aria += ', más ' + oc.ceros + ' ausente(s) que no usan cupo';
         }
@@ -243,7 +257,7 @@
         'aria-label': AUS.fmtLargo(f) + ', ' + aria + (f === hoy ? ' (hoy)' : ''), 'aria-disabled': clic ? null : 'true',
         dataset: { fecha: f },
         onclick: () => { if (clic && opt.onSelect) opt.onSelect(f); },
-      }, AUS.h('span', { class: 'num' }, n), est && AUS.h('span', { class: 'est' }, est), sub && AUS.h('span', { class: 'sub' }, sub));
+      }, AUS.h('span', { class: 'num' }, n), est && AUS.h('span', { class: 'est' }, est), sub && AUS.h('span', { class: 'sub' }, sub), franjas);
       grid.append(btn);
     }
     host.append(grid);
@@ -252,8 +266,8 @@
   AUS.leyenda = function (vista) {
     const l = AUS.h('div', { class: 'leyenda', 'aria-label': 'Leyenda' });
     if (vista.tipo === 'equipo') {
-      l.append(AUS.chip('Libre', 'chip-normal'), AUS.chip('Cupo parcial (ej. 1 de 2)', 'chip-precaucion'), AUS.chip('Lleno', 'chip-critico'),
-        AUS.h('span', { class: 'chip chip-neutro' }, 'Borde punteado = hay pendientes'), AUS.chip('No hábil', 'chip-neutro'));
+      l.append(AUS.chip('Libre', 'chip-normal'), AUS.chip('Con cupo parcial', 'chip-precaucion'), AUS.chip('Lleno', 'chip-critico'),
+        AUS.chip('Franjas: mañana | tarde', 'chip-neutro'), AUS.chip('Borde punteado: hay pendientes', 'chip-neutro'), AUS.chip('No hábil', 'chip-neutro'));
     } else if (vista.tipo === 'todos') {
       l.append(AUS.chip('Libre (sin ausentes)', 'chip-normal'), AUS.chip('Con ausentes (aus.)', 'chip-precaucion'), AUS.chip('Algún equipo lleno', 'chip-critico'), AUS.chip('No hábil', 'chip-neutro'));
     } else l.append(AUS.chip('Turnantes ausentes', 'chip-info'), AUS.chip('Feriado', 'chip-neutro'));

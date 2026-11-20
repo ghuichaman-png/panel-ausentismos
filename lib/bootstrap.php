@@ -63,7 +63,7 @@ function cabeceras_seguridad(): void
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: same-origin');
     header('X-Frame-Options: DENY');
-    header("Content-Security-Policy: default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    header("Content-Security-Policy: default-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
 }
 
 function json_out(mixed $data, int $code = 200): never

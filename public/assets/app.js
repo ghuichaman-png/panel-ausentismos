@@ -12,21 +12,23 @@
   // ═══════════ Calendario ═══════════
   const C = { mes: null, vista: { tipo: 'turn' }, data: null, sel: null, listo: false };
 
+  // Vista: «Equipo» (por defecto el propio), «Todos» o «Turnantes» (SPEC-v2 §6.1). Se recuerda en este dispositivo.
   function poblarVista() {
     const sel = $('c-vista');
-    vaciar(sel);
-    const g = h('optgroup', { label: 'Equipos (diurnos)' });
-    CFG.equipos.filter((e) => e.tiene_diurnos).forEach((e) => g.append(h('option', { value: 'e:' + e.id }, e.nombre)));
-    sel.append(g, h('option', { value: 'todos' }, 'Todos los equipos'), h('option', { value: 'turn' }, 'Turnantes'));
-    let v = AUS.leer('aus_vista', null);
-    if (!v || ![...sel.options].some((o) => o.value === v)) v = sel.options[0].value;
-    sel.value = v;
-    C.vista = parseVista(v);
+    const equipos = CFG.equipos.filter((e) => e.tiene_diurnos);
+    vaciar(sel).append(...equipos.map((e) => h('option', { value: e.id }, e.nombre)));
+    const propio = SES.persona.jornada === 'diurno' ? SES.persona.equipo_id : null;
+    const g = AUS.leer('aus_vista2', null) || {};
+    const modo = ['equipo', 'todos', 'turn'].includes(g.modo) ? g.modo : (propio ? 'equipo' : 'turn');
+    sel.value = equipos.some((e) => e.id === g.equipoId) ? g.equipoId : (propio || (equipos[0] || {}).id);
+    document.querySelector('input[name="c-modo"][value="' + modo + '"]').checked = true;
+    aplicarVista();
   }
-  function parseVista(v) {
-    if (v === 'todos') return { tipo: 'todos' };
-    if (v === 'turn') return { tipo: 'turn' };
-    return { tipo: 'equipo', equipoId: +v.slice(2) };
+  function aplicarVista() {
+    const modo = document.querySelector('input[name="c-modo"]:checked').value;
+    mostrarEl($('c-vista'), modo === 'equipo');
+    C.vista = modo === 'equipo' ? { tipo: 'equipo', equipoId: +$('c-vista').value } : { tipo: modo };
+    AUS.guardar('aus_vista2', { modo, equipoId: +$('c-vista').value });
   }
 
   async function cargarMes() {
@@ -59,7 +61,8 @@
     $('c-ant').onclick = () => { C.mes = AUS.mesAdd(C.mes, -1); C.sel = null; cargarMes(); };
     $('c-sig').onclick = () => { C.mes = AUS.mesAdd(C.mes, 1); C.sel = null; cargarMes(); };
     $('c-hoy').onclick = () => { C.mes = AUS.hoyISO().slice(0, 7); C.sel = AUS.hoyISO(); cargarMes(); };
-    $('c-vista').onchange = (ev) => { AUS.guardar('aus_vista', ev.target.value); C.vista = parseVista(ev.target.value); pintarCal(false); };
+    $('c-vista').onchange = () => { aplicarVista(); pintarCal(false); };
+    document.querySelectorAll('input[name="c-modo"]').forEach((r) => r.addEventListener('change', () => { aplicarVista(); pintarCal(false); }));
     $('c-imprimir').onclick = () => window.print();
   }
   function abrirCal() { initCal(); cargarMes(); }
@@ -220,7 +223,7 @@
           F.sinSaldo = 'No te alcanza el saldo de ' + nombre + ' ' + x.anio + ': te quedan ' + AUS.num(x.disponible) + ' y esta solicitud usa ' + AUS.num(x.usa) + '. Habla con coordinación.';
           box.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Saldo insuficiente. '), F.sinSaldo.replace(/^No te alcanza /, 'No alcanza ')));
         } else {
-          box.append(h('p', { class: 'nota' }, 'Saldo de ' + nombre + ' ' + x.anio + ': usa ' + AUS.num(x.usa) + ', te quedarán ' + AUS.num(x.disponible - x.usa) + ' de ' + AUS.num(x.disponible) + ' disponibles.'));
+          box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'Saldo ' + x.saldo + ' ' + x.anio + ': '), 'usa ' + AUS.num(x.usa) + ', te quedarán ' + AUS.num(x.disponible - x.usa) + ' de ' + AUS.num(x.disponible) + '.'));
         }
       });
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
@@ -412,11 +415,12 @@
       const fila = h('div', { class: 'dos-col' });
       [['FL', 'Feriado legal'], ['ADM', 'Administrativos']].forEach(([k, n]) => {
         const x = r.saldos[k];
-        fila.append(h('div', { class: 'tarjeta-blanca' },
-          h('p', { class: 'etiqueta' }, n),
-          h('p', { class: 'cod-grande' }, AUS.num(x.disponible), h('span', { class: 'nota' }, ' días disponibles')),
-          h('p', { class: 'meta' }, 'Asignados ' + AUS.num(x.asignado) + (x.ajustes ? ' · ajustes ' + (x.ajustes > 0 ? '+' : '') + AUS.num(x.ajustes) : '') +
-            ' · autorizados ' + AUS.num(x.autorizado) + ' · pendientes ' + AUS.num(x.pendiente))));
+        // MetricCard de Vital: número grande = lo que queda; el pie explica de dónde sale.
+        fila.append(h('section', { class: 'vt-metric', 'aria-label': n + ': ' + AUS.num(x.disponible) + ' días disponibles' },
+          h('div', { class: 'vt-metric__head' }, h('span', { class: 'vt-metric__label' }, n + ' (' + k + ')')),
+          h('div', { class: 'vt-metric__value' }, h('span', { class: 'vt-metric__num' }, AUS.num(x.disponible)), h('span', { class: 'vt-metric__unit' }, 'días disponibles')),
+          h('div', { class: 'vt-metric__foot' }, h('span', { class: 'meta' }, 'De ' + AUS.num(x.asignado + x.ajustes) + (x.ajustes ? ' (incluye ajuste ' + (x.ajustes > 0 ? '+' : '') + AUS.num(x.ajustes) + ')' : '') +
+            ' · usados ' + AUS.num(x.autorizado) + ' · pendientes ' + AUS.num(x.pendiente)))));
       });
       caja.append(fila, h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
       r.ajustes.forEach((a) => caja.append(h('p', { class: 'meta' }, 'Ajuste ' + a.saldo + ' ' + (a.dias > 0 ? '+' : '') + AUS.num(a.dias) + ': ' + a.motivo)));
@@ -464,6 +468,7 @@
   function mostrarIngreso(msg) {
     SES = null; AUS.csrf = null;
     mostrarEl($('barra'), false); mostrarEl($('nav'), false);
+    document.body.classList.remove('con-barra-abajo');
     document.querySelectorAll('main > section').forEach((s) => mostrarEl(s, false));
     mostrarEl($('v-ingreso'), true);
     $('i-error').textContent = msg || '';
@@ -534,6 +539,7 @@
     }
     mostrarEl($('v-ingreso'), false);
     mostrarEl($('barra'), true); mostrarEl($('nav'), true);
+    document.body.classList.add('con-barra-abajo');
     mostrarEl($('nav-coord'), SES.persona.rol === 'coordinacion');
     mostrar();
   }
