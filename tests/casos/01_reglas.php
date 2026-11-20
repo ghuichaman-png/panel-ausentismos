@@ -182,6 +182,6 @@ prueba('CSV de nómina: upsert por RUT y reporte de errores', function () {
     })();
     chequear($r['creados'] === 2 && $r['actualizados'] === 0 && count($r['errores']) === 2, 'creados 2, errores 2: ' . json_encode($r));
     $r = h_coord_nomina_importar($db, [], ['csv' => $csv]);
-    chequear($r['creados'] === 0 && $r['actualizados'] === 2, 'segunda pasada actualiza');
+    chequear($r['creados'] === 0 && $r['actualizados'] === 0 && $r['sin_cambios'] === 2, 'segunda pasada no duplica ni cambia nada: ' . json_encode($r));
 });
 

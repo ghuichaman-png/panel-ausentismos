@@ -402,7 +402,7 @@
       try {
         const r = await api('coord/nomina/importar', { cuerpo: { csv: texto } });
         resultado.append(h('div', { class: 'aviso ' + (r.errores.length ? 'aviso-precaucion' : 'aviso-normal') },
-          h('b', null, 'Importación: '), r.creados + ' creados, ' + r.actualizados + ' actualizados, ' + r.errores.length + ' con error.',
+          h('b', null, 'Importación: '), r.creados + ' creados, ' + r.actualizados + ' actualizados, ' + (r.sin_cambios || 0) + ' sin cambios, ' + r.errores.length + ' con error.',
           r.errores.length ? h('ul', null, r.errores.map((e) => h('li', null, 'Línea ' + e.linea + ': ' + e.motivo))) : null));
         cargar();
       } catch (e) { resultado.append(h('p', { class: 'msg-error' }, e.message)); }

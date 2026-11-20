@@ -272,8 +272,19 @@ function h_coord_nomina_guardar(PDO $db, array $p, array $in): array
 
 function h_coord_nomina_importar(PDO $db, array $p, array $in): array
 {
-    $csv = (string)($in['csv'] ?? '');
-    $csv = preg_replace('/^\xEF\xBB\xBF/', '', $csv);
+    $res = tx($db, fn() => nomina_importar($db, (string)($in['csv'] ?? '')));
+    unset($res['ruts']);
+    return $res;
+}
+
+/**
+ * Upsert de la nómina desde un CSV (texto). Por RUT: crea a quien no está y actualiza a quien está.
+ * Nunca borra ni desactiva a quien no viene en el archivo. Debe llamarse dentro de una transacción.
+ * Devuelve ['creados', 'actualizados', 'sin_cambios', 'errores' => [['linea','motivo']], 'ruts' => RUT válidos del archivo].
+ */
+function nomina_importar(PDO $db, string $csv): array
+{
+    $csv = (string)preg_replace('/^\xEF\xBB\xBF/', '', $csv);
     if (trim($csv) === '') throw new ApiError('El archivo está vacío.', 422);
     $primera = strtok($csv, "\n") ?: '';
     $delim = substr_count($primera, ';') > substr_count($primera, ',') ? ';' : ',';
@@ -288,47 +299,54 @@ function h_coord_nomina_importar(PDO $db, array $p, array $in): array
     $eqMap = [];
     foreach ($db->query('SELECT id,nombre FROM equipos') as $e) $eqMap[texto_norm($e['nombre'])] = (int)$e['id'];
 
-    $res = ['creados' => 0, 'actualizados' => 0, 'errores' => []];
+    $res = ['creados' => 0, 'actualizados' => 0, 'sin_cambios' => 0, 'errores' => []];
     $linea = 1;
-    tx($db, function () use ($db, $fh, $cab, $delim, $eqMap, &$res, &$linea) {
-        while (($f = fgetcsv($fh, 0, $delim, '"', '\\')) !== false) {
-            $linea++;
-            if (count($f) === 1 && trim((string)$f[0]) === '') continue;
-            if ($linea > 3001) { $res['errores'][] = ['linea' => $linea, 'motivo' => 'Máximo 3000 filas por importación.']; break; }
-            $row = [];
-            foreach ($cab as $i => $c) $row[$c] = trim((string)($f[$i] ?? ''));
-            try {
-                $eqNombre = texto_norm($row['equipo']);
-                $equipoId = null;
-                if ($eqNombre !== '') {
-                    if (!isset($eqMap[$eqNombre])) throw new ApiError('Equipo «' . $row['equipo'] . '» no existe.', 422);
-                    $equipoId = $eqMap[$eqNombre];
-                }
-                $cal = texto_norm($row['calidad']);
-                if ($cal === 'honorario') $cal = 'honorarios';
-                $datos = ['nombre' => $row['nombre'], 'rut' => $row['rut'], 'jornada' => texto_norm($row['jornada']),
-                          'calidad' => $cal, 'equipo_id' => $equipoId];
-                if (array_key_exists('telefono', $row)) $datos['telefono'] = $row['telefono']; // columna opcional
-                $v = nomina_validar($db, $datos);
-                $st = $db->prepare('SELECT id FROM funcionarios WHERE rut=?');
-                $st->execute([$v['rut']]);
-                $existe = $st->fetchColumn();
-                if ($existe) {
-                    $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,jornada=?,equipo_id=?,calidad=?,activo=1 WHERE id=?')
-                       ->execute([$v['nombre'], texto_norm($v['nombre']), $v['jornada'], $v['equipo_id'], $v['calidad'], $existe]);
-                    if (array_key_exists('telefono', $v)) $db->prepare('UPDATE funcionarios SET telefono=? WHERE id=?')->execute([$v['telefono'], $existe]);
-                    $res['actualizados']++;
-                } else {
-                    $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,telefono,activo) VALUES (?,?,?,?,?,?,?,1)')
-                       ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $v['telefono'] ?? null]);
-                    $res['creados']++;
-                }
-            } catch (ApiError $e) {
-                $res['errores'][] = ['linea' => $linea, 'motivo' => $e->getMessage()];
+    $vistos = [];
+    while (($f = fgetcsv($fh, 0, $delim, '"', '\\')) !== false) {
+        $linea++;
+        if (count($f) === 1 && trim((string)$f[0]) === '') continue;
+        if ($linea > 3001) { $res['errores'][] = ['linea' => $linea, 'motivo' => 'Máximo 3000 filas por importación.']; break; }
+        $row = [];
+        foreach ($cab as $i => $c) $row[$c] = trim((string)($f[$i] ?? ''));
+        try {
+            $eqNombre = texto_norm($row['equipo']);
+            $equipoId = null;
+            if ($eqNombre !== '') {
+                if (!isset($eqMap[$eqNombre])) throw new ApiError('Equipo «' . $row['equipo'] . '» no existe.', 422);
+                $equipoId = $eqMap[$eqNombre];
             }
+            $cal = texto_norm($row['calidad']);
+            if ($cal === 'honorario') $cal = 'honorarios';
+            $datos = ['nombre' => $row['nombre'], 'rut' => $row['rut'], 'jornada' => texto_norm($row['jornada']),
+                      'calidad' => $cal, 'equipo_id' => $equipoId];
+            if (array_key_exists('telefono', $row)) $datos['telefono'] = $row['telefono']; // columna opcional
+            $v = nomina_validar($db, $datos);
+            if (isset($vistos[$v['rut']])) throw new ApiError("RUT repetido en el archivo (ya venía en la línea {$vistos[$v['rut']]}).", 422);
+            $vistos[$v['rut']] = $linea;
+            $st = $db->prepare('SELECT * FROM funcionarios WHERE rut=?');
+            $st->execute([$v['rut']]);
+            $ex = $st->fetch();
+            if ($ex) {
+                $igual = $ex['nombre'] === $v['nombre'] && $ex['jornada'] === $v['jornada'] && (int)$ex['equipo_id'] === (int)$v['equipo_id']
+                    && $ex['calidad'] === $v['calidad'] && (int)$ex['activo'] === 1
+                    && (!array_key_exists('telefono', $v) || ($ex['telefono'] ?? null) === $v['telefono']);
+                if ($igual) { $res['sin_cambios']++; continue; }
+                $db->prepare('UPDATE funcionarios SET nombre=?,nombre_norm=?,jornada=?,equipo_id=?,calidad=?,activo=1 WHERE id=?')
+                   ->execute([$v['nombre'], texto_norm($v['nombre']), $v['jornada'], $v['equipo_id'], $v['calidad'], $ex['id']]);
+                if (array_key_exists('telefono', $v)) $db->prepare('UPDATE funcionarios SET telefono=? WHERE id=?')->execute([$v['telefono'], $ex['id']]);
+                $res['actualizados']++;
+            } else {
+                $db->prepare('INSERT INTO funcionarios (nombre,nombre_norm,rut,jornada,equipo_id,calidad,telefono,activo) VALUES (?,?,?,?,?,?,?,1)')
+                   ->execute([$v['nombre'], texto_norm($v['nombre']), $v['rut'], $v['jornada'], $v['equipo_id'], $v['calidad'], $v['telefono'] ?? null]);
+                $res['creados']++;
+            }
+        } catch (ApiError $e) {
+            $res['errores'][] = ['linea' => $linea, 'motivo' => $e->getMessage()];
         }
-        auditar($db, 'nomina_importar', null, "creados={$res['creados']} actualizados={$res['actualizados']} errores=" . count($res['errores']), ip_cliente());
-    });
+    }
+    $res['ruts'] = array_keys($vistos);
+    auditar($db, 'nomina_importar', null, "creados={$res['creados']} actualizados={$res['actualizados']} errores=" . count($res['errores']),
+            function_exists('ip_cliente') ? ip_cliente() : '', yo_o_null());
     return $res;
 }
 
