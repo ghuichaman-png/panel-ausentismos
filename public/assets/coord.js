@@ -5,9 +5,9 @@
   const $ = (id) => document.getElementById(id);
   const mostrarEl = (el, v) => el.classList.toggle('oculto', !v);
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-  const S = { equipos: [], sec: 'pend', cal: { mes: null, vista: null } };
+  const S = { equipos: [], sec: 'hoy', cal: { mes: null, vista: null } };
 
-  const SECCIONES = [['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['exp', 'Exportar y respaldo']];
+  const SECCIONES = [['hoy', 'Hoy'], ['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['sal', 'Saldos'], ['tip', 'Tipos'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['aud', 'Registro de cambios'], ['exp', 'Exportar y respaldo']];
 
   // ───────── Sesión (la de la persona; el ingreso está en la app principal) ─────────
   const api = AUS.api;
@@ -25,6 +25,15 @@
     abrir(S.sec);
   }
 
+  // En el celular las tablas pasan a tarjetas (app.css): cada celda lleva el nombre de su columna en data-label.
+  function etiquetarTablas(raiz) {
+    raiz.querySelectorAll('table.tabla').forEach((t) => {
+      const cab = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      t.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (!td.hasAttribute('data-label')) td.dataset.label = cab[i] || ''; }));
+    });
+  }
+  new MutationObserver(() => etiquetarTablas($('sec'))).observe($('sec'), { childList: true, subtree: true });
+
   async function cargarEquipos() { S.equipos = (await api('coord/equipos')).equipos; }
   const equiposActivos = () => S.equipos.filter((e) => e.activo);
 
@@ -36,7 +45,7 @@
   function abrir(k) {
     const m = $('sec');
     vaciar(m);
-    ({ pend: secSolicitudes, todas: secSolicitudes, cal: secCalendario, res: secResumen, tur: secTurnos, hx: secHorasExtra, nom: secNomina, eq: secEquipos, fer: secFeriados, exp: secExportar }[k])(m, k)
+    ({ hoy: secHoy, sal: secSaldos, tip: secTipos, aud: secAuditoria, pend: secSolicitudes, todas: secSolicitudes, cal: secCalendario, res: secResumen, tur: secTurnos, hx: secHorasExtra, nom: secNomina, eq: secEquipos, fer: secFeriados, exp: secExportar }[k])(m, k)
       .catch((e) => { if (e.status !== 401) m.append(h('p', { class: 'aviso aviso-critico', role: 'alert' }, e.message)); });
   }
 
@@ -47,7 +56,7 @@
     if (valor != null) s.value = valor;
     return s;
   };
-  const check = (txt, marcado) => { const i = h('input', { type: 'checkbox', checked: !!marcado }); return [h('label', null, i, txt), i]; };
+  const check = (txt, marcado) => { const i = h('input', { type: 'checkbox', checked: !!marcado }); return [h('label', { class: 'check' }, i, h('span', null, txt)), i]; };
 
   function dialogo(titulo, cuerpo, botones) {
     return new Promise((resolve) => {
@@ -233,7 +242,7 @@
     sel.onchange = () => { c.vista = sel.value; if (data) pintar(); };
     m.append(h('div', { class: 'cal-ctrl' }, h('button', { type: 'button', class: 'btn', 'aria-label': 'Mes anterior', onclick: nav(-1) }, '‹'), titulo,
       h('button', { type: 'button', class: 'btn', 'aria-label': 'Mes siguiente', onclick: nav(1) }, '›'),
-      h('button', { type: 'button', class: 'btn', onclick: () => { c.mes = AUS.hoyISO().slice(0, 7); cargar(); } }, 'Hoy'), sel), ley, grid, det);
+      h('button', { type: 'button', class: 'btn', id: 'c-hoy', onclick: () => { c.mes = AUS.hoyISO().slice(0, 7); cargar(); } }, 'Hoy')), h('div', { class: 'cal-vista' }, sel), ley, grid, det);
     await cargar();
   }
 
@@ -485,6 +494,134 @@
         await api('coord/equipos' + (e ? '/' + e.id : ''), { cuerpo: { nombre: nombre.value, cupo_diurno: cupo.value, orden: +orden.value, tiene_diurnos: d.checked, tiene_turnantes: t.checked, activo: a.checked } });
         return true;
       } }]);
+  }
+
+  // ───────── Hoy ─────────
+  async function secHoy(m) {
+    const r = await api('coord/hoy');
+    const ir = (k) => { S.sec = k; pintarTabs(); abrir(k); };
+    m.append(h('h1', null, 'Hoy, ' + AUS.fmt(r.hoy)));
+    const bloque = (titulo, n, vacio, items, pie) => h('section', { class: 'tarjeta vista' },
+      h('h2', null, titulo + ' ', h('span', { class: 'chip chip-neutro' }, String(n))),
+      n ? h('ul', { class: 'lista-hoy' }, items) : h('p', { class: 'nota' }, vacio), pie || null);
+    m.append(h('div', { class: 'grilla-hoy' },
+      bloque('Ausentes hoy', r.ausentes.length, 'Nadie está ausente hoy.',
+        r.ausentes.map((a) => h('li', null, h('strong', null, a.nombre), ' · ' + a.etiqueta + (a.equipo ? ' · ' + a.equipo : '')))),
+      bloque('Turnos sin cubrir (7 días)', r.sin_cubrir.length, 'No hay turnos sin cubrir.',
+        r.sin_cubrir.map((t) => h('li', null, AUS.fmt(t.fecha) + ' · ' + cap(t.tipo) + (t.unidad ? ' · ' + t.unidad : '') + (t.titular ? ' · ' + t.titular : ''))),
+        r.sin_cubrir.length ? h('button', { type: 'button', class: 'btn btn-chico', onclick: () => ir('tur') }, 'Asignar en Turnos') : null),
+      bloque('Pendientes que vencen pronto', r.pendientes_pronto.length, 'No hay pendientes para los próximos 3 días.',
+        r.pendientes_pronto.map((s) => h('li', null, h('strong', null, s.nombre), ' · ' + (s.etiqueta || s.tipo) + ' · ' + AUS.fmt(s.fecha_inicio) + ' ',
+          s.vencida ? AUS.chip('Vencida', 'chip-critico') : null)),
+        r.pendientes_pronto.length ? h('button', { type: 'button', class: 'btn btn-chico btn-primario', onclick: () => ir('pend') }, 'Ir a la bandeja') : null)));
+  }
+
+  // ───────── Saldos FL / ADM ─────────
+  const normTxt = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  async function secSaldos(m) {
+    const anioAct = +String(AUS.hoy).slice(0, 4);
+    const anio = h('select', { class: 'input' }, [anioAct - 1, anioAct, anioAct + 1].map((a) => h('option', { value: a }, String(a))));
+    anio.value = anioAct;
+    const q = h('input', { type: 'search', class: 'input', placeholder: 'Nombre o equipo' });
+    const tabla = h('div', { class: 'tabla-wrap' });
+    let datos = [];
+    const disp = (x) => AUS.num(x.disponible) + ' de ' + AUS.num(x.asignado + x.ajustes);
+    const pend = (x) => (x.pendiente ? h('span', { class: 'nota' }, ' (' + AUS.num(x.pendiente) + ' pend.)') : null);
+    const pintar = () => {
+      const t = normTxt(q.value.trim());
+      const lista = datos.filter((p) => !t || normTxt(p.nombre + ' ' + (p.equipo || '')).includes(t));
+      vaciar(tabla).append(h('table', { class: 'tabla' },
+        h('thead', null, h('tr', null, ...['Persona', 'Equipo', 'FL disponible', 'ADM disponible', ''].map((x) => h('th', null, x)))),
+        h('tbody', null, lista.map((p) => h('tr', null, h('td', null, p.nombre), h('td', null, p.equipo || (p.jornada === 'turnante' ? 'Turnante' : '—')),
+          h('td', null, disp(p.FL), pend(p.FL)), h('td', null, disp(p.ADM), pend(p.ADM)),
+          h('td', null, h('button', { type: 'button', class: 'btn btn-chico', onclick: () => ajustarSaldo(p, +anio.value).then((ok) => ok && cargar()) }, 'Ajustar')))))));
+    };
+    const cargar = async () => { datos = (await api('coord/saldos', { params: { anio: anio.value } })).personas; pintar(); };
+    anio.onchange = () => cargar().catch((e) => tabla.append(h('p', { class: 'msg-error' }, e.message)));
+    q.oninput = pintar;
+    m.append(h('h1', null, 'Saldos FL y ADM'),
+      h('p', { class: 'nota' }, 'Cada año parte con FL 15 y ADM 6, sin arrastre. Los ajustes puntuales (p. ej. más días de FL) quedan en el registro de cambios.'),
+      h('div', { class: 'tarjeta filtros' }, campo('Año', anio), campo('Buscar', q)), tabla);
+    await cargar();
+  }
+
+  function ajustarSaldo(p, anio) {
+    const saldo = h('select', { class: 'input' }, h('option', { value: 'FL' }, 'FL (feriado legal)'), h('option', { value: 'ADM' }, 'ADM (administrativo)'));
+    const dias = h('input', { class: 'input', type: 'number', step: '0.5', min: '-60', max: '60', value: '1', inputmode: 'decimal' });
+    const motivo = h('input', { class: 'input', maxlength: '200', placeholder: 'Ej.: días adicionales por antigüedad' });
+    return dialogo('Ajustar saldo de ' + p.nombre, h('div', null, h('p', { class: 'nota' }, 'Año ' + anio + '. Usa un número negativo para descontar.'),
+      campo('Saldo', saldo), campo('Días', dias), campo('Motivo', motivo, 'Queda registrado y la persona lo ve en Mi perfil.')), [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Guardar ajuste', clase: 'btn-primario', accion: async () => {
+        await api('coord/saldos/ajustar', { cuerpo: { funcionario_id: p.funcionario_id, anio, saldo: saldo.value, dias: dias.value, motivo: motivo.value } });
+        return true;
+      } }]);
+  }
+
+  // ───────── Tipos de ausentismo ─────────
+  async function secTipos(m) {
+    const tabla = h('div', { class: 'tabla-wrap' });
+    const si = (b) => (b ? 'Sí' : 'No');
+    const pintar = async () => {
+      const tipos = (await api('coord/tipos')).tipos;
+      vaciar(tabla).append(h('table', { class: 'tabla' },
+        h('thead', null, h('tr', null, ...['Sigla', 'Nombre', 'Se ve como', 'Cupo', 'Saldo', 'Medio día', 'Lo pide', 'Activo', ''].map((x) => h('th', null, x)))),
+        h('tbody', null, tipos.map((t) => h('tr', null, h('td', null, t.sigla), h('td', null, t.nombre), h('td', null, t.etiqueta_publica),
+          h('td', null, t.consume_cupo ? (t.regla_cupo === 'fl' ? 'Sí (regla FL)' : 'Sí') : 'No'), h('td', null, t.saldo || '—'), h('td', null, si(t.medio_dia)),
+          h('td', null, t.lo_pide === 'coordinacion' ? 'Coordinación' : 'La persona'), h('td', null, si(t.activo)),
+          h('td', null, h('button', { type: 'button', class: 'btn btn-chico', onclick: () => editarTipo(t).then((ok) => ok && pintar()) }, 'Editar')))))));
+    };
+    m.append(h('h1', null, 'Tipos de ausentismo'),
+      h('p', { class: 'nota' }, 'Nada se borra: un tipo que ya no se usa se desactiva. Cambiar un tipo no modifica solicitudes ya hechas.'),
+      h('p', null, h('button', { type: 'button', class: 'btn btn-primario', onclick: () => editarTipo(null).then((ok) => ok && pintar()) }, 'Agregar tipo')), tabla);
+    await pintar();
+  }
+
+  function editarTipo(t) {
+    const fijo = !!(t && t.precargado);
+    const sel = (opts, v) => { const s = h('select', { class: 'input', disabled: fijo }, opts.map(([a, b]) => h('option', { value: a }, b))); s.value = v; return s; };
+    const sigla = h('input', { class: 'input', maxlength: '6', value: t ? t.sigla : '', disabled: !!t, autocapitalize: 'characters' });
+    const nombre = h('input', { class: 'input', maxlength: '60', value: t ? t.nombre : '' });
+    const etq = h('input', { class: 'input', maxlength: '30', value: t ? t.etiqueta_publica : '' });
+    const orden = h('input', { class: 'input', type: 'number', min: '0', value: t ? t.orden : 50 });
+    const cupo = sel([['normal', 'Sí, cupo normal'], ['fl', 'Sí, con la regla de FL'], ['no', 'No consume cupo']], t ? (t.consume_cupo ? t.regla_cupo : 'no') : 'normal');
+    const saldo = sel([['', 'Ninguno'], ['FL', 'FL'], ['ADM', 'ADM']], t ? (t.saldo || '') : '');
+    const pide = sel([['funcionario', 'La persona, desde la app'], ['coordinacion', 'Solo coordinación lo registra']], t ? t.lo_pide : 'funcionario');
+    const rango = sel([['rango', 'Rango de fechas'], ['un_dia', 'Un solo día']], t ? t.rango : 'rango');
+    const [lM, med] = check('Permite medio día (mañana o tarde)', t ? t.medio_dia : false);
+    const [lR, rem] = check('Exige reemplazo en turnos', t ? t.exige_reemplazo : true);
+    const [lA, act] = check('Activo', t ? t.activo : true);
+    if (fijo) { med.disabled = true; rem.disabled = true; }
+    return dialogo(t ? 'Editar ' + t.sigla : 'Agregar tipo', h('div', null,
+      fijo ? h('p', { class: 'aviso aviso-info' }, 'Tipo precargado: solo se cambian nombre, etiqueta, orden y si está activo.') : null,
+      campo('Sigla', sigla, t ? 'No se puede cambiar.' : 'De 2 a 6 letras o números.'), campo('Nombre', nombre),
+      campo('Cómo lo ven los demás en el calendario', etq), campo('¿Consume cupo del equipo?', cupo), campo('Descuenta de un saldo', saldo),
+      campo('¿Quién lo pide?', pide), campo('Fechas', rango), campo('Orden', orden), h('div', { class: 'checks' }, lM, lR, lA)), [
+      { texto: 'Cancelar', valor: false },
+      { texto: 'Guardar', clase: 'btn-primario', accion: async () => {
+        await api('coord/tipos' + (t ? '/' + t.id : ''), { cuerpo: { sigla: sigla.value, nombre: nombre.value, etiqueta_publica: etq.value, orden: +orden.value,
+          consume_cupo: cupo.value !== 'no', regla_cupo: cupo.value === 'fl' ? 'fl' : 'normal', saldo: saldo.value || null, lo_pide: pide.value, rango: rango.value,
+          medio_dia: med.checked, exige_reemplazo: rem.checked, activo: act.checked } });
+        S.tipos = (await api('config')).tipos;
+        return true;
+      } }]);
+  }
+
+  // ───────── Registro de cambios ─────────
+  async function secAuditoria(m) {
+    const q = h('input', { type: 'search', class: 'input', placeholder: 'Persona, acción o código' });
+    const lista = h('div', { class: 'tabla-wrap' });
+    const cargar = async () => {
+      const r = await api('coord/auditoria', { params: { q: q.value.trim() } });
+      vaciar(lista).append(h('p', { class: 'nota', 'aria-live': 'polite' }, r.registros.length + ' registro(s)' + (r.registros.length >= 300 ? ' (los 300 más recientes; afina la búsqueda)' : '') + '.'),
+        h('table', { class: 'tabla' }, h('thead', null, h('tr', null, ...['Fecha', 'Quién', 'Acción', 'Detalle'].map((x) => h('th', null, x)))),
+          h('tbody', null, r.registros.map((x) => h('tr', null, h('td', null, x.fecha.slice(0, 16)), h('td', null, x.quien), h('td', null, x.accion.replace(/_/g, ' ')), h('td', null, x.detalle || ''))))));
+    };
+    m.append(h('h1', null, 'Registro de cambios'), h('p', { class: 'nota' }, 'Todo lo que se crea, autoriza, ajusta o configura queda aquí con quién lo hizo. No se puede editar.'),
+      h('form', { class: 'tarjeta filtros', onsubmit: (e) => { e.preventDefault(); cargar().catch((er) => lista.append(h('p', { class: 'msg-error' }, er.message))); } },
+        campo('Buscar', q), h('button', { type: 'submit', class: 'btn btn-primario' }, 'Buscar')), lista);
+    await cargar();
   }
 
   // ───────── Feriados ─────────

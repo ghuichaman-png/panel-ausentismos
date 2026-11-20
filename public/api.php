@@ -62,6 +62,8 @@ $rutas = [
     ['POST', 'coord/turnos/(\d+)/eliminar',    'h_coord_turno_eliminar',    'coord'],
     ['POST', 'coord/turnos/(\d+)',             'h_coord_turno_guardar',     'coord'],
     ['POST', 'coord/turnos',                   'h_coord_turno_guardar',     'coord'],
+    ['GET',  'coord/hoy',                      'h_coord_hoy',               'coord'],
+    ['GET',  'coord/auditoria',                'h_coord_auditoria',         'coord'],
     ['GET',  'coord/saldos',                   'h_coord_saldos',            'coord'],
     ['POST', 'coord/saldos/ajustar',           'h_coord_saldos_ajustar',    'coord'],
     ['GET',  'coord/tipos',                    'h_coord_tipos_listar',      'coord'],

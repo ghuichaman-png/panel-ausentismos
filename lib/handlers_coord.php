@@ -477,3 +477,47 @@ function h_coord_feriados_eliminar(PDO $db, array $p, array $in): array
     auditar($db, 'feriado_eliminar', null, $in['fecha'], ip_cliente());
     return ['ok' => true];
 }
+
+// ───────────────────────── Vistas «Hoy» y «Registro de cambios» (SPEC-v2 §6.2.10–11) ─────────────────────────
+
+/** Lo que coordinación necesita al abrir el panel: quién falta hoy, turnos sin cubrir y pendientes que vencen pronto. */
+function h_coord_hoy(PDO $db, array $p, array $in): array
+{
+    $hoy = Reloj::hoy();
+    $st = $db->prepare("SELECT f.nombre, e.nombre AS equipo, COALESCE(t.etiqueta_publica, s.tipo) AS etiqueta, MAX(d.am) AS am, MAX(d.pm) AS pm, s.id
+        FROM solicitud_dias d JOIN solicitudes s ON s.id=d.solicitud_id JOIN funcionarios f ON f.id=s.funcionario_id
+        LEFT JOIN equipos e ON e.id=f.equipo_id LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo
+        WHERE d.fecha=? AND s.estado='autorizada' AND COALESCE(t.es_cambio_turno,0)=0
+        GROUP BY s.id ORDER BY f.nombre");
+    $st->execute([$hoy]);
+    $aus = [];
+    foreach ($st->fetchAll() as $r) {
+        $media = ((int)$r['am'] && !(int)$r['pm']) ? ' ½ AM' : ((!(int)$r['am'] && (int)$r['pm']) ? ' ½ PM' : '');
+        $aus[] = ['solicitud_id' => (int)$r['id'], 'nombre' => $r['nombre'], 'equipo' => $r['equipo'], 'etiqueta' => $r['etiqueta'] . $media];
+    }
+    $get = $_GET;
+    $_GET = ['desde' => $hoy, 'hasta' => fecha_add($hoy, 7)];
+    $sin = h_coord_turnos_sin_cubrir($db, [], [])['turnos'];
+    $_GET = $get;
+    $st = $db->prepare("SELECT s.*, t.etiqueta_publica AS etiqueta, f.nombre FROM solicitudes s JOIN funcionarios f ON f.id=s.funcionario_id
+        LEFT JOIN tipos_ausentismo t ON t.sigla=s.tipo WHERE s.estado='pendiente' AND s.fecha_inicio<=? ORDER BY s.fecha_inicio, s.id");
+    $st->execute([fecha_add($hoy, 3)]);
+    $pend = array_map(fn($s) => sol_publica($s) + ['vencida' => $s['fecha_inicio'] < $hoy], $st->fetchAll());
+    return ['hoy' => $hoy, 'ausentes' => $aus, 'sin_cubrir' => $sin, 'pendientes_pronto' => $pend];
+}
+
+/** Registro de cambios: últimas acciones con su autor; filtro de texto sin importar tildes ni mayúsculas. */
+function h_coord_auditoria(PDO $db, array $p, array $in): array
+{
+    $q = texto_norm(limpiar($_GET['q'] ?? '', 80));
+    $rows = $db->query("SELECT a.id, a.fecha, a.accion, a.detalle, a.solicitud_id, f.nombre AS quien
+        FROM auditoria a LEFT JOIN funcionarios f ON f.id=a.funcionario_id ORDER BY a.id DESC LIMIT 3000")->fetchAll();
+    $out = [];
+    foreach ($rows as $r) {
+        if ($q !== '' && !str_contains(texto_norm($r['accion'] . ' ' . $r['detalle'] . ' ' . ($r['quien'] ?? '')), $q)) continue;
+        $r['quien'] = $r['quien'] ?? 'Sistema';
+        $out[] = $r;
+        if (count($out) >= 300) break;
+    }
+    return ['registros' => $out];
+}
