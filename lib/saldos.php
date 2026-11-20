@@ -214,7 +214,9 @@ function h_saldos_mios(PDO $db, array $p, array $in): array
     $st->execute([yo(), $anio]);
     $aj = $st->fetchAll();
     foreach ($aj as &$x) $x['dias'] = (float)$x['dias'];
-    return ['anio' => $anio, 'saldos' => saldo_estado($db, yo(), $anio), 'ajustes' => $aj];
+    return ['anio' => $anio, 'saldos' => saldo_estado($db, yo(), $anio), 'ajustes' => $aj,
+            'fl_fraccionado' => ['usado' => fl_fraccionado_usado($db, yo(), $anio), 'maximo' => (float)cfg('fl_fraccionado_max_dias', 5),
+                                 'bloque_min' => (int)cfg('fl_bloque_min_dias_habiles', 10)]];
 }
 
 function h_coord_saldos(PDO $db, array $p, array $in): array

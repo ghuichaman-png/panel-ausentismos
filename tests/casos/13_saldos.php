@@ -128,6 +128,7 @@ prueba('HTTP: «Mi saldo» para cada persona; coordinación ve y ajusta saldos',
     $anio = (int)date('Y');
     $r = $f->pedir('GET', 'saldos/mios');
     chequear(($r['json']['saldos']['FL']['disponible'] ?? null) == 15 && ($r['json']['anio'] ?? 0) === $anio, 'saldos/mios: FL 15 disponibles: ' . $r['raw']);
+    chequear(($r['json']['fl_fraccionado']['usado'] ?? null) == 0 && ($r['json']['fl_fraccionado']['maximo'] ?? null) == 5, 'saldos/mios: fraccionados usados 0 de 5');
     $k = entrar($app, $rc, $cc, '739104');
     $lista = $k->pedir('GET', 'coord/saldos')['json']['personas'] ?? [];
     $fila = array_values(array_filter($lista, fn($x) => $x['nombre'] === 'Funcionaria Prueba'))[0] ?? null;

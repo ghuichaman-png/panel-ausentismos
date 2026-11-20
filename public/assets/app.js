@@ -226,6 +226,25 @@
           box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'Saldo ' + x.saldo + ' ' + x.anio + ': '), 'usa ' + AUS.num(x.usa) + ', te quedarán ' + AUS.num(x.disponible - x.usa) + ' de ' + AUS.num(x.disponible) + '.'));
         }
       });
+      if (s.fl) {
+        // Bloque de vacaciones o FL fraccionado (máximo de días fraccionados por año).
+        if (s.fl.modalidad === 'bloque') {
+          box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'Bloque de vacaciones: '), 'descuenta solo de lunes a viernes, sin festivos.'));
+        } else {
+          (s.fl.fraccionado || []).forEach((x) => {
+            const queda = x.maximo - x.usado;
+            if (x.excede) {
+              F.sinSaldo = 'El feriado legal fraccionado es de máximo ' + AUS.num(x.maximo) + ' días al año. En ' + x.anio + ' te quedan ' + AUS.num(Math.max(queda, 0)) +
+                ' y esta solicitud usa ' + AUS.num(x.usa) + '. El resto se toma en un bloque de ' + s.fl.bloque_min + ' días hábiles o más.';
+              box.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Supera los días fraccionados. '), F.sinSaldo));
+            } else {
+              box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'FL fraccionado ' + x.anio + ': '),
+                'usa ' + AUS.num(x.usa) + (j === 'turnante' ? ' (1 por turno)' : '') + '; te quedarán ' + AUS.num(queda - x.usa) + ' de ' + AUS.num(x.maximo) +
+                ' días fraccionados. Un bloque de ' + s.fl.bloque_min + ' días hábiles o más no los gasta.'));
+            }
+          });
+        }
+      }
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
       if (j === 'turnante') return;
       if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
@@ -422,7 +441,13 @@
           h('div', { class: 'vt-metric__foot' }, h('span', { class: 'meta' }, 'De ' + AUS.num(x.asignado + x.ajustes) + (x.ajustes ? ' (incluye ajuste ' + (x.ajustes > 0 ? '+' : '') + AUS.num(x.ajustes) + ')' : '') +
             ' · usados ' + AUS.num(x.autorizado) + ' · pendientes ' + AUS.num(x.pendiente)))));
       });
-      caja.append(fila, h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
+      caja.append(fila);
+      if (r.fl_fraccionado) {
+        const fr = r.fl_fraccionado;
+        caja.append(h('p', { class: 'nota' }, 'FL fraccionado: llevas ' + AUS.num(fr.usado) + ' de ' + AUS.num(fr.maximo) +
+          ' días este año. El resto del feriado legal se toma en un bloque de ' + fr.bloque_min + ' días hábiles o más.'));
+      }
+      caja.append(h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
       r.ajustes.forEach((a) => caja.append(h('p', { class: 'meta' }, 'Ajuste ' + a.saldo + ' ' + (a.dias > 0 ? '+' : '') + AUS.num(a.dias) + ': ' + a.motivo)));
     } catch (e) { caja.append(h('p', { class: 'msg-error' }, e.message)); }
     const ul = vaciar($('p-sesiones'));
