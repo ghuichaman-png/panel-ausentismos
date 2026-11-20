@@ -22,7 +22,27 @@ function migraciones(): array
         6 => 'mig_006_saldos',
         7 => 'mig_007_turnos',
         8 => 'mig_008_cubierto_extra',
+        9 => 'mig_009_fl_modalidad',
     ];
+}
+
+/** FL: bloque de vacaciones o fraccionado (pedido del 20-11-2026). Marca las FL existentes; no recalcula su saldo. */
+function mig_009_fl_modalidad(PDO $db): void
+{
+    $db->exec("ALTER TABLE solicitudes ADD COLUMN fl_modalidad TEXT CHECK (fl_modalidad IN ('bloque','fraccionado'))");
+    mig_009_fl_modalidad_datos($db);
+}
+
+/** Las FL creadas antes se clasifican por su rango guardado (en turnantes, del primer al último turno). */
+function mig_009_fl_modalidad_datos(PDO $db): void
+{
+    $fer = [];
+    foreach ($db->query('SELECT fecha FROM feriados') as $r) $fer[$r['fecha']] = true;
+    $cfg = cfg();
+    $up = $db->prepare('UPDATE solicitudes SET fl_modalidad=? WHERE id=?');
+    $q = $db->query("SELECT s.id, s.fecha_inicio, s.fecha_fin FROM solicitudes s JOIN tipos_ausentismo t ON t.sigla = s.tipo
+        WHERE t.saldo = 'FL' AND t.rango = 'rango' AND t.es_cambio_turno = 0 AND s.fl_modalidad IS NULL");
+    foreach ($q->fetchAll() as $s) $up->execute([fl_modalidad($s['fecha_inicio'], $s['fecha_fin'], $fer, $cfg), $s['id']]);
 }
 
 /** Si quien cubre un turno lo hace como extra (§12.4), separado del «extra» propio del turno cargado. */

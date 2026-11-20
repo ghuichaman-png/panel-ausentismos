@@ -284,7 +284,7 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         }
         $hoy = Reloj::hoy();
         $extra = ['cambio_con' => null, 'cambio_con_id' => null, 'devolucion_turno_id' => null, 'devolucion_fecha' => null, 'devolucion_turno' => null];
-        $rangoSaldo = null;
+        $rangoPedido = null;
         $omitidos = [];
         $equipo = null;
 
@@ -298,6 +298,7 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
                                     reg_feriados($db), (int)($cfg['fl_largo_dias_habiles'] ?? 5));
             $dias = $calc['dias'];
             $omitidos = $calc['omitidos'];
+            $rangoPedido = [$fi, max($fi, $ff)];
             foreach ($dias as &$d) $d['equipo_id'] = (int)$p['equipo_id'];
             unset($d);
         } else {
@@ -309,8 +310,8 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
                                              'unidad_turno_id' => null, 'turno_id' => null, 'reemplazo_id' => null, 'reemplazo_nombre' => null], rango_fechas($in['fecha_inicio'], $ff, 62));
             } else {
                 $dias = reg_dias_turnos($db, $in, $t, $p['funcionario_id'], $extra);
-                // FL de turnante: el saldo cuenta los días hábiles del rango pedido, no solo los días con turno (§12.1).
-                if ($t['rango'] === 'rango' && !$t['es_cambio_turno']) $rangoSaldo = [$in['fecha_inicio'], fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $in['fecha_inicio']];
+                // Rango pedido por el turnante (no solo los días con turno): define si un FL es bloque o fraccionado.
+                if ($t['rango'] === 'rango' && !$t['es_cambio_turno']) $rangoPedido = [$in['fecha_inicio'], fecha_ok($in['fecha_fin'] ?? null) ? $in['fecha_fin'] : $in['fecha_inicio']];
             }
             foreach ($dias as &$d) $d['equipo_id'] = null;
             unset($d);
@@ -336,17 +337,33 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
         if ($equipo) $llenos = reg_dias_llenos($db, (int)$equipo['id'], $dias, (float)$equipo['cupo_diurno']);
         $consumoTotal = array_sum(array_column($dias, 'consumo'));
         // Saldo (SPEC-v2 §4.5): se calcula dentro de la misma transacción que el cupo.
-        $usoSaldo = saldo_requerido($t, $dias, reg_feriados($db), $rangoSaldo);
+        // FL: bloque (10+ hábiles: descuenta de lunes a viernes sin festivos) o fraccionado (máx. 5 al año; turnante: 1 por turno).
+        $flModalidad = null;
+        $revFrac = [];
+        if (fl_aplica($t) && $rangoPedido) {
+            $fer = reg_feriados($db);
+            $flModalidad = fl_modalidad($rangoPedido[0], $rangoPedido[1], $fer, $cfg);
+            if ($flModalidad === 'bloque') $usoSaldo = saldo_requerido($t, $dias, $fer, $rangoPedido);
+            elseif ($p['jornada'] === 'diurno') $usoSaldo = saldo_requerido($t, $dias, $fer);
+            else $usoSaldo = fl_uso_por_turno($dias);
+            if ($flModalidad === 'fraccionado') $revFrac = fl_revisar_fraccionado($db, $p['funcionario_id'], $usoSaldo, $cfg);
+        } else {
+            $usoSaldo = saldo_requerido($t, $dias, reg_feriados($db));
+        }
         $revSaldo = saldo_revisar($db, $p['funcionario_id'], $t['saldo'], $usoSaldo);
 
         if ($dry) {
             // Sin datos de la persona: sin login, cualquiera podría simular a nombre de otro (bug N2).
-            return ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'am' => $d['am'], 'pm' => $d['pm'], 'fraccion' => $d['fraccion']], $dias),
+            $r = ['dias' => array_map(fn($d) => ['fecha' => $d['fecha'], 'consumo' => $d['consumo'], 'am' => $d['am'], 'pm' => $d['pm'], 'fraccion' => $d['fraccion']], $dias),
                     'omitidos' => $omitidos, 'habiles' => count($dias), 'consumo_total' => $consumoTotal,
                     'dias_llenos' => $llenos, 'cupo' => $equipo ? (float)$equipo['cupo_diurno'] : null, 'saldo' => $revSaldo];
+            if ($flModalidad) $r['fl'] = ['modalidad' => $flModalidad, 'fraccionado' => $revFrac,
+                                          'bloque_min' => (int)($cfg['fl_bloque_min_dias_habiles'] ?? 10)];
+            return $r;
         }
 
         saldo_exigir($revSaldo);   // se bloquea si no alcanza (antes que el sobre cupo: eso no lo arregla)
+        fl_exigir_fraccionado($revFrac, $cfg);
         $justif = limpiar($in['justificacion'] ?? '', 1000);
         if ($llenos) {
             if (empty($in['acepta_sobre_cupo'])) {
@@ -380,6 +397,7 @@ function reg_crear(PDO $db, array $in, array $meta = [], bool $dry = false): arr
             $ins->execute([$id, $d['fecha'], $d['equipo_id'], $d['consumo'], $d['am'], $d['pm'], $d['fraccion'], $d['turno'], $d['unidad_turno_id'], $d['turno_id'] ?? null, $d['reemplazo_id'] ?? null, $d['reemplazo_nombre']]);
         }
         saldo_registrar_uso($db, $id, $t['saldo'], $usoSaldo);
+        if ($flModalidad) $db->prepare('UPDATE solicitudes SET fl_modalidad=? WHERE id=?')->execute([$flModalidad, $id]);
         // Los tipos que registra coordinación (licencia) nacen autorizados, firmados por quien los registró (§12.5).
         $estado = 'pendiente';
         if ($t['lo_pide'] === 'coordinacion' && !empty($meta['por_coordinacion'])) {
@@ -453,6 +471,9 @@ function reg_revertir(PDO $db, int $id, string $motivo, string $por, bool $acept
         }
         $uso = saldo_uso_guardado($db, $id);   // al volver a autorizar se re-verifica el saldo (sin contarse a sí misma)
         saldo_exigir(saldo_revisar($db, (int)$s['funcionario_id'], $uso['saldo'], $uso['req'], $id));
+        if (($s['fl_modalidad'] ?? null) === 'fraccionado') {
+            fl_exigir_fraccionado(fl_revisar_fraccionado($db, (int)$s['funcionario_id'], $uso['req'], cfg(), $id), cfg());
+        }
         if ($llenos) {
             if (!$aceptaSobre) throw new ApiError('Ya no hay cupo en algunos días. Para autorizarla debe marcarse sobre cupo con justificación.', 409, ['codigo' => 'sin_cupo', 'dias_llenos' => $llenos]);
             if ($justif === '') throw new ApiError('Escribe la justificación del sobre cupo.', 422, ['codigo' => 'falta_justificacion']);

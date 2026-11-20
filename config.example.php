@@ -22,6 +22,8 @@ return [
 
     // Reglas
     'fl_largo_dias_habiles' => 5,    // FL con >= N días hábiles (titular/contrata) no consume cupo
+    'fl_bloque_min_dias_habiles' => 10, // FL con >= N días hábiles es bloque de vacaciones: descuenta de lunes a viernes sin festivos
+    'fl_fraccionado_max_dias' => 5,  // FL más cortos (fraccionados): máximo de días por año; el turnante descuenta 1 por turno
     'anticipacion_min_dias' => null, // null = desactivado
     'horizonte_max_dias'    => null, // null = desactivado
 ];

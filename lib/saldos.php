@@ -51,6 +51,74 @@ function saldo_requerido(array $tipo, array $dias, array $feriados, ?array $rang
     return $out;
 }
 
+/*
+ * FL: bloque de vacaciones o días fraccionados (pedido del 20-11-2026; reemplaza SPEC-v2 §12.1).
+ *  - Bloque: el rango pedido tiene `fl_bloque_min_dias_habiles` (10) o más días hábiles. Descuenta los días hábiles
+ *    (lunes a viernes sin festivos), también al turnante, aunque sus turnos caigan sábado o domingo.
+ *  - Fraccionado: rango más corto. El diurno descuenta sus días hábiles; el turnante, 1 por cada turno.
+ *    Máximo `fl_fraccionado_max_dias` (5) por año, contando pendientes y autorizadas. Vale para todos.
+ */
+
+/** ¿Aplica la regla de bloque/fraccionado? Tipos de rango que descuentan del saldo FL. */
+function fl_aplica(array $t): bool
+{
+    return ($t['saldo'] ?? null) === 'FL' && ($t['rango'] ?? '') === 'rango' && empty($t['es_cambio_turno']);
+}
+
+function fl_habiles(string $desde, string $hasta, array $feriados): int
+{
+    $n = 0;
+    foreach (rango_fechas($desde, $hasta) as $f) if (dia_semana($f) < 6 && !isset($feriados[$f])) $n++;
+    return $n;
+}
+
+function fl_modalidad(string $desde, string $hasta, array $feriados, array $cfg): string
+{
+    return fl_habiles($desde, $hasta, $feriados) >= (int)($cfg['fl_bloque_min_dias_habiles'] ?? 10) ? 'bloque' : 'fraccionado';
+}
+
+/** Días de FL fraccionado ya usados (pendientes + autorizadas) en un año. $excluir: sin contar esa solicitud. */
+function fl_fraccionado_usado(PDO $db, int $fid, int $anio, ?int $excluir = null): float
+{
+    $st = $db->prepare("SELECT COALESCE(SUM(ss.dias),0) FROM solicitud_saldo ss JOIN solicitudes s ON s.id = ss.solicitud_id
+        WHERE s.funcionario_id=? AND ss.anio=? AND ss.saldo='FL' AND s.fl_modalidad='fraccionado'
+          AND s.estado IN ('pendiente','autorizada') AND s.id <> ?");
+    $st->execute([$fid, $anio, $excluir ?? 0]);
+    return (float)$st->fetchColumn();
+}
+
+/** Una fila por año: lo que lleva, lo que usa esta solicitud y el máximo. */
+function fl_revisar_fraccionado(PDO $db, int $fid, array $req, array $cfg, ?int $excluir = null): array
+{
+    $max = (float)($cfg['fl_fraccionado_max_dias'] ?? 5);
+    $out = [];
+    foreach ($req as $anio => $dias) {
+        $usado = fl_fraccionado_usado($db, $fid, (int)$anio, $excluir);
+        $out[] = ['anio' => (int)$anio, 'usado' => $usado, 'usa' => (float)$dias, 'maximo' => $max, 'excede' => $usado + $dias > $max + REG_EPS];
+    }
+    return $out;
+}
+
+/** Lanza 422 «fl_fraccionado» si algún año supera el máximo de días fraccionados. */
+function fl_exigir_fraccionado(array $revision, array $cfg): void
+{
+    foreach ($revision as $r) {
+        if (!$r['excede']) continue;
+        $bloque = (int)($cfg['fl_bloque_min_dias_habiles'] ?? 10);
+        throw new ApiError(sprintf('El feriado legal fraccionado es de máximo %s días al año. En %d llevas %s y esta solicitud usa %s. '
+            . 'El resto se toma en un bloque de %d días hábiles o más.', num_cl($r['maximo']), $r['anio'], num_cl($r['usado']), num_cl($r['usa']), $bloque),
+            422, ['codigo' => 'fl_fraccionado', 'fraccionado' => $revision]);
+    }
+}
+
+/** FL fraccionado de turnante: 1 por cada turno, en el año de su fecha. */
+function fl_uso_por_turno(array $dias): array
+{
+    $out = [];
+    foreach ($dias as $d) $out[substr($d['fecha'], 0, 4)] = ($out[substr($d['fecha'], 0, 4)] ?? 0.0) + 1.0;
+    return $out;
+}
+
 /** Estado de los saldos de una persona en un año. $excluir: no contar esa solicitud (al revertirla). */
 function saldo_estado(PDO $db, int $fid, int $anio, ?int $excluir = null): array
 {
