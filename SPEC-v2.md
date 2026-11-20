@@ -262,7 +262,7 @@ Se comportan según su configuración (§3.5), con las mismas reglas de cupo por
 - **Ingreso / activación:** RUT, PIN o código, y la casilla "computador compartido".
 - **Calendario** (pantalla principal):
   - mes con navegación;
-  - SegmentedControl "Mi equipo · Todos · Turnantes" (por defecto, el propio);
+  - SegmentedControl "Diurnos · Turnantes" (cambiado el 20-11-2026), cada uno con su selector: Diurnos → "Todos los equipos" o un equipo (por defecto, el propio; solo cuenta diurnos); Turnantes → "Todas las unidades" o una unidad (la del turno; por defecto, todas). Coordinación tiene las mismas opciones en su lista;
   - cada día hábil muestra el estado de **cada bloque** con una palabra ("Libre", "1 de 2", "Lleno") y las pendientes se distinguen;
   - al tocar un día se ve quién falta (nombre, tipo según su etiqueta pública y estado). Nunca RUT, calidad, teléfono ni justificaciones.
 - **"Pedir días"** (acción principal, siempre visible):

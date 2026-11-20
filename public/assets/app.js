@@ -12,23 +12,34 @@
   // ═══════════ Calendario ═══════════
   const C = { mes: null, vista: { tipo: 'turn' }, data: null, sel: null, listo: false };
 
-  // Vista: «Equipo» (por defecto el propio), «Todos» o «Turnantes» (SPEC-v2 §6.1). Se recuerda en este dispositivo.
+  // Vista: «Diurnos» (un equipo, por defecto el propio, o todos los equipos) o «Turnantes» (todas las unidades o una).
+  // Se recuerda en este dispositivo.
   function poblarVista() {
-    const sel = $('c-vista');
+    const sel = $('c-vista'), uni = $('c-unidad');
     const equipos = CFG.equipos.filter((e) => e.tiene_diurnos);
-    vaciar(sel).append(...equipos.map((e) => h('option', { value: e.id }, e.nombre)));
+    const unidades = CFG.equipos.filter((e) => e.tiene_turnantes);
+    vaciar(sel).append(h('option', { value: 'todos' }, 'Todos los equipos'), ...equipos.map((e) => h('option', { value: e.id }, e.nombre)));
+    vaciar(uni).append(h('option', { value: '' }, 'Todas las unidades'), ...unidades.map((e) => h('option', { value: e.id }, e.nombre)));
     const propio = SES.persona.jornada === 'diurno' ? SES.persona.equipo_id : null;
-    const g = AUS.leer('aus_vista2', null) || {};
-    const modo = ['equipo', 'todos', 'turn'].includes(g.modo) ? g.modo : (propio ? 'equipo' : 'turn');
-    sel.value = equipos.some((e) => e.id === g.equipoId) ? g.equipoId : (propio || (equipos[0] || {}).id);
+    let g = AUS.leer('aus_vista3', null);
+    if (!g) {   // preferencia guardada con las tres vistas anteriores (Equipo · Todos · Turnantes)
+      const v = AUS.leer('aus_vista2', null) || {};
+      g = v.modo === 'turn' ? { modo: 'turn' } : v.modo === 'todos' ? { modo: 'diurnos', equipo: 'todos' } : v.modo === 'equipo' ? { modo: 'diurnos', equipo: v.equipoId } : {};
+    }
+    const modo = ['diurnos', 'turn'].includes(g.modo) ? g.modo : (propio ? 'diurnos' : 'turn');
+    sel.value = g.equipo === 'todos' ? 'todos' : equipos.some((e) => e.id === g.equipo) ? g.equipo : (propio || 'todos');
+    uni.value = unidades.some((e) => e.id === g.unidad) ? g.unidad : '';
     document.querySelector('input[name="c-modo"][value="' + modo + '"]').checked = true;
     aplicarVista();
   }
   function aplicarVista() {
     const modo = document.querySelector('input[name="c-modo"]:checked').value;
-    mostrarEl($('c-vista'), modo === 'equipo');
-    C.vista = modo === 'equipo' ? { tipo: 'equipo', equipoId: +$('c-vista').value } : { tipo: modo };
-    AUS.guardar('aus_vista2', { modo, equipoId: +$('c-vista').value });
+    const eq = $('c-vista').value, un = $('c-unidad').value;
+    mostrarEl($('c-vista'), modo === 'diurnos');
+    mostrarEl($('c-unidad'), modo === 'turn');
+    C.vista = modo === 'turn' ? { tipo: 'turn', unidadId: un ? +un : null }
+      : eq === 'todos' ? { tipo: 'todos' } : { tipo: 'equipo', equipoId: +eq };
+    AUS.guardar('aus_vista3', { modo, equipo: eq === 'todos' ? 'todos' : +eq, unidad: un ? +un : null });
   }
 
   async function cargarMes() {
@@ -62,6 +73,7 @@
     $('c-sig').onclick = () => { C.mes = AUS.mesAdd(C.mes, 1); C.sel = null; cargarMes(); };
     $('c-hoy').onclick = () => { C.mes = AUS.hoyISO().slice(0, 7); C.sel = AUS.hoyISO(); cargarMes(); };
     $('c-vista').onchange = () => { aplicarVista(); pintarCal(false); };
+    $('c-unidad').onchange = () => { aplicarVista(); pintarCal(false); };
     document.querySelectorAll('input[name="c-modo"]').forEach((r) => r.addEventListener('change', () => { aplicarVista(); pintarCal(false); }));
     $('c-imprimir').onclick = () => window.print();
   }
