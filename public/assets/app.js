@@ -12,23 +12,34 @@
   // ═══════════ Calendario ═══════════
   const C = { mes: null, vista: { tipo: 'turn' }, data: null, sel: null, listo: false };
 
-  // Vista: «Equipo» (por defecto el propio), «Todos» o «Turnantes» (SPEC-v2 §6.1). Se recuerda en este dispositivo.
+  // Vista: «Diurnos» (un equipo, por defecto el propio, o todos los equipos) o «Turnantes» (todas las unidades o una).
+  // Se recuerda en este dispositivo.
   function poblarVista() {
-    const sel = $('c-vista');
+    const sel = $('c-vista'), uni = $('c-unidad');
     const equipos = CFG.equipos.filter((e) => e.tiene_diurnos);
-    vaciar(sel).append(...equipos.map((e) => h('option', { value: e.id }, e.nombre)));
+    const unidades = CFG.equipos.filter((e) => e.tiene_turnantes);
+    vaciar(sel).append(h('option', { value: 'todos' }, 'Todos los equipos'), ...equipos.map((e) => h('option', { value: e.id }, e.nombre)));
+    vaciar(uni).append(h('option', { value: '' }, 'Todas las unidades'), ...unidades.map((e) => h('option', { value: e.id }, e.nombre)));
     const propio = SES.persona.jornada === 'diurno' ? SES.persona.equipo_id : null;
-    const g = AUS.leer('aus_vista2', null) || {};
-    const modo = ['equipo', 'todos', 'turn'].includes(g.modo) ? g.modo : (propio ? 'equipo' : 'turn');
-    sel.value = equipos.some((e) => e.id === g.equipoId) ? g.equipoId : (propio || (equipos[0] || {}).id);
+    let g = AUS.leer('aus_vista3', null);
+    if (!g) {   // preferencia guardada con las tres vistas anteriores (Equipo · Todos · Turnantes)
+      const v = AUS.leer('aus_vista2', null) || {};
+      g = v.modo === 'turn' ? { modo: 'turn' } : v.modo === 'todos' ? { modo: 'diurnos', equipo: 'todos' } : v.modo === 'equipo' ? { modo: 'diurnos', equipo: v.equipoId } : {};
+    }
+    const modo = ['diurnos', 'turn'].includes(g.modo) ? g.modo : (propio ? 'diurnos' : 'turn');
+    sel.value = g.equipo === 'todos' ? 'todos' : equipos.some((e) => e.id === g.equipo) ? g.equipo : (propio || 'todos');
+    uni.value = unidades.some((e) => e.id === g.unidad) ? g.unidad : '';
     document.querySelector('input[name="c-modo"][value="' + modo + '"]').checked = true;
     aplicarVista();
   }
   function aplicarVista() {
     const modo = document.querySelector('input[name="c-modo"]:checked').value;
-    mostrarEl($('c-vista'), modo === 'equipo');
-    C.vista = modo === 'equipo' ? { tipo: 'equipo', equipoId: +$('c-vista').value } : { tipo: modo };
-    AUS.guardar('aus_vista2', { modo, equipoId: +$('c-vista').value });
+    const eq = $('c-vista').value, un = $('c-unidad').value;
+    mostrarEl($('c-vista'), modo === 'diurnos');
+    mostrarEl($('c-unidad'), modo === 'turn');
+    C.vista = modo === 'turn' ? { tipo: 'turn', unidadId: un ? +un : null }
+      : eq === 'todos' ? { tipo: 'todos' } : { tipo: 'equipo', equipoId: +eq };
+    AUS.guardar('aus_vista3', { modo, equipo: eq === 'todos' ? 'todos' : +eq, unidad: un ? +un : null });
   }
 
   async function cargarMes() {
@@ -62,6 +73,7 @@
     $('c-sig').onclick = () => { C.mes = AUS.mesAdd(C.mes, 1); C.sel = null; cargarMes(); };
     $('c-hoy').onclick = () => { C.mes = AUS.hoyISO().slice(0, 7); C.sel = AUS.hoyISO(); cargarMes(); };
     $('c-vista').onchange = () => { aplicarVista(); pintarCal(false); };
+    $('c-unidad').onchange = () => { aplicarVista(); pintarCal(false); };
     document.querySelectorAll('input[name="c-modo"]').forEach((r) => r.addEventListener('change', () => { aplicarVista(); pintarCal(false); }));
     $('c-imprimir').onclick = () => window.print();
   }
@@ -226,6 +238,25 @@
           box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'Saldo ' + x.saldo + ' ' + x.anio + ': '), 'usa ' + AUS.num(x.usa) + ', te quedarán ' + AUS.num(x.disponible - x.usa) + ' de ' + AUS.num(x.disponible) + '.'));
         }
       });
+      if (s.fl) {
+        // Bloque de vacaciones o FL fraccionado (máximo de días fraccionados por año).
+        if (s.fl.modalidad === 'bloque') {
+          box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'Bloque de vacaciones: '), 'descuenta solo de lunes a viernes, sin festivos.'));
+        } else {
+          (s.fl.fraccionado || []).forEach((x) => {
+            const queda = x.maximo - x.usado;
+            if (x.excede) {
+              F.sinSaldo = 'El feriado legal fraccionado es de máximo ' + AUS.num(x.maximo) + ' días al año. En ' + x.anio + ' te quedan ' + AUS.num(Math.max(queda, 0)) +
+                ' y esta solicitud usa ' + AUS.num(x.usa) + '. El resto se toma en un bloque de ' + s.fl.bloque_min + ' días hábiles o más.';
+              box.append(h('div', { class: 'aviso aviso-critico' }, h('b', null, 'Supera los días fraccionados. '), F.sinSaldo));
+            } else {
+              box.append(h('div', { class: 'aviso aviso-info' }, h('b', null, 'FL fraccionado ' + x.anio + ': '),
+                'usa ' + AUS.num(x.usa) + (j === 'turnante' ? ' (1 por turno)' : '') + '; te quedarán ' + AUS.num(queda - x.usa) + ' de ' + AUS.num(x.maximo) +
+                ' días fraccionados. Un bloque de ' + s.fl.bloque_min + ' días hábiles o más no los gasta.'));
+            }
+          });
+        }
+      }
       if (s.omitidos.length) box.append(h('p', { class: 'nota' }, 'Se omiten ' + AUS.plural(s.omitidos.length, 'día no hábil', 'días no hábiles') + ' (fin de semana o feriado): ' + s.omitidos.map((o) => AUS.fmt(o.fecha).slice(0, 5)).join(', ') + '.'));
       if (j === 'turnante') return;
       if (s.consumo_total === 0) box.append(h('p', { class: 'nota' }, T().consume_cupo ? 'Feriado legal largo (5 o más días hábiles): no usa cupo, pero aparece en el calendario.' : 'Este tipo no usa cupo del equipo, pero aparece en el calendario.'));
@@ -371,8 +402,61 @@
 
   // ═══════════ Mis turnos ═══════════
   const ESTADO_TURNO = { normal: null, cubierto: ['Te cubren', 'chip-normal'], sin_cubrir: ['Ausente', 'chip-info'], cambio: ['Por cambio', 'chip-info'] };
-  async function abrirTurnos() {
+  // Calendario mensual con mis turnos y los que cubro (solo los propios; no muestra la rotativa de otras personas).
+  const TM = { mes: null, listo: false };
+  function pintarMisTurnos(r) {
+    $('t-titulo').textContent = AUS.mesTitulo(r.mes);
+    const porDia = {};
+    r.turnos.forEach((x) => (porDia[x.fecha] = porDia[x.fecha] || { mios: [], cubro: [] }).mios.push(x));
+    r.cubro.forEach((x) => (porDia[x.fecha] = porDia[x.fecha] || { mios: [], cubro: [] }).cubro.push(x));
+    const hoy = AUS.hoyISO();
+    const grid = h('div', { class: 'cal', 'aria-label': 'Mis turnos de ' + AUS.mesTitulo(r.mes) });
+    ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].forEach((d) => grid.append(h('div', { class: 'cal-cab', 'aria-hidden': 'true' }, d)));
+    const lead = (AUS.fecha(r.desde).getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) grid.append(h('div', { class: 'dia vacio', 'aria-hidden': 'true' }));
+    const ultimo = +r.hasta.slice(8, 10);
+    for (let n = 1; n <= ultimo; n++) {
+      const f = r.mes + '-' + String(n).padStart(2, '0');
+      const d = porDia[f] || { mios: [], cubro: [] };
+      const feriado = r.feriados[f];
+      const partes = [], aria = [];
+      let clase = '';
+      d.mios.forEach((x) => {
+        const e = ESTADO_TURNO[x.estado];
+        partes.push(h('span', { class: 'est' }, cap(x.tipo)));
+        if (e) partes.push(h('span', { class: 'sub' }, e[0]));
+        aria.push('turno ' + x.tipo + ' en ' + x.unidad + (e ? ' (' + e[0].toLowerCase() + ')' : ''));
+      });
+      d.cubro.forEach((x) => {
+        partes.push(h('span', { class: 'est' }, 'Cubro ' + x.tipo));
+        aria.push('cubro el turno ' + x.tipo + ' de ' + x.titular);
+      });
+      if (d.mios.length) clase = 'turn';
+      else if (d.cubro.length) clase = 'parcial';
+      else if (AUS.esFinde(f) || feriado) clase = 'nohabil';
+      if (feriado && !partes.length) partes.push(h('span', { class: 'sub' }, 'Feriado'));
+      grid.append(h('div', { class: 'dia ' + clase + (f === hoy ? ' hoy' : ''), role: 'group',
+        'aria-label': AUS.fmtLargo(f) + ': ' + (aria.length ? aria.join('; ') : 'sin turno') + (feriado ? ', feriado' : '') + (f === hoy ? ' (hoy)' : '') },
+        h('span', { class: 'num' }, n), ...partes));
+    }
+    vaciar($('t-grid')).append(grid);
+    vaciar($('t-leyenda')).append(h('div', { class: 'leyenda', 'aria-label': 'Leyenda' },
+      AUS.chip('Mi turno', 'chip-info'), AUS.chip('Turno que cubro', 'chip-precaucion'), AUS.chip('Fin de semana o feriado', 'chip-neutro')));
+  }
+  async function cargarCalTurnos() {
     $('t-error').textContent = '';
+    try { pintarMisTurnos(await api('turnos/mios', { params: { mes: TM.mes } })); }
+    catch (e) { $('t-error').textContent = e.message; }
+  }
+  async function abrirTurnos() {
+    if (!TM.listo) {
+      TM.listo = true;
+      TM.mes = AUS.hoyISO().slice(0, 7);
+      $('t-ant').onclick = () => { TM.mes = AUS.mesAdd(TM.mes, -1); cargarCalTurnos(); };
+      $('t-sig').onclick = () => { TM.mes = AUS.mesAdd(TM.mes, 1); cargarCalTurnos(); };
+      $('t-hoy').onclick = () => { TM.mes = AUS.hoyISO().slice(0, 7); cargarCalTurnos(); };
+    }
+    cargarCalTurnos();
     const mios = vaciar($('t-mios')), cubro = vaciar($('t-cubro'));
     try {
       const r = await api('turnos/mios');
@@ -422,7 +506,13 @@
           h('div', { class: 'vt-metric__foot' }, h('span', { class: 'meta' }, 'De ' + AUS.num(x.asignado + x.ajustes) + (x.ajustes ? ' (incluye ajuste ' + (x.ajustes > 0 ? '+' : '') + AUS.num(x.ajustes) + ')' : '') +
             ' · usados ' + AUS.num(x.autorizado) + ' · pendientes ' + AUS.num(x.pendiente)))));
       });
-      caja.append(fila, h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
+      caja.append(fila);
+      if (r.fl_fraccionado) {
+        const fr = r.fl_fraccionado;
+        caja.append(h('p', { class: 'nota' }, 'FL fraccionado: llevas ' + AUS.num(fr.usado) + ' de ' + AUS.num(fr.maximo) +
+          ' días este año. El resto del feriado legal se toma en un bloque de ' + fr.bloque_min + ' días hábiles o más.'));
+      }
+      caja.append(h('p', { class: 'nota' }, 'Saldo interno del equipo: si no coincide con RR.HH., avisa a coordinación. Las solicitudes pendientes ya se descuentan.'));
       r.ajustes.forEach((a) => caja.append(h('p', { class: 'meta' }, 'Ajuste ' + a.saldo + ' ' + (a.dias > 0 ? '+' : '') + AUS.num(a.dias) + ': ' + a.motivo)));
     } catch (e) { caja.append(h('p', { class: 'msg-error' }, e.message)); }
     const ul = vaciar($('p-sesiones'));

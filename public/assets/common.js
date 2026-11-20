@@ -232,7 +232,8 @@
           if (oc.ceros) aria += ', más ' + oc.ceros + ' ausente(s) que no usan cupo';
         }
       } else if (vista.tipo === 'todos') {
-        const nombres = new Set(lista.map((a) => a.nombre + '|' + a.solicitud_id));
+        // «Todos los equipos»: solo diurnos (los turnantes tienen su propia vista, sin cupo)
+        const nombres = new Set(lista.filter((a) => a.jornada === 'diurno').map((a) => a.nombre + '|' + a.solicitud_id));
         let llenos = 0;
         data.equipos.filter((e) => e.tiene_diurnos).forEach((e) => {
           const oc = AUS.ocupacion(lista, e.id);
@@ -247,7 +248,7 @@
           aria = (llenos ? AUS.plural(llenos, 'equipo lleno', 'equipos llenos') + ', ' : '') + (aus ? AUS.plural(aus, 'ausente', 'ausentes') : 'sin ausentes');
         }
       } else {
-        const t = lista.filter((a) => a.jornada === 'turnante');
+        const t = AUS.turnantesDe(lista, vista);
         if (t.length) { clase = 'turn'; est = AUS.plural(t.length, 'aus.', 'aus.'); aria = AUS.plural(t.length, 'turnante ausente', 'turnantes ausentes'); }
         else { clase = feriado ? 'nohabil' : ''; est = feriado ? 'Feriado' : '—'; aria = feriado ? 'feriado: ' + feriado : 'sin ausencias de turnantes'; }
       }
@@ -263,13 +264,16 @@
     host.append(grid);
   };
 
+  /** Ausencias de turnantes de un día; con vista.unidadId, solo las de esa unidad (la del turno). */
+  AUS.turnantesDe = (lista, vista) => lista.filter((a) => a.jornada === 'turnante' && (!vista.unidadId || a.unidad_id === vista.unidadId));
+
   AUS.leyenda = function (vista) {
     const l = AUS.h('div', { class: 'leyenda', 'aria-label': 'Leyenda' });
     if (vista.tipo === 'equipo') {
       l.append(AUS.chip('Libre', 'chip-normal'), AUS.chip('Con cupo parcial', 'chip-precaucion'), AUS.chip('Lleno', 'chip-critico'),
         AUS.chip('Franjas: mañana | tarde', 'chip-neutro'), AUS.chip('Borde punteado: hay pendientes', 'chip-neutro'), AUS.chip('No hábil', 'chip-neutro'));
     } else if (vista.tipo === 'todos') {
-      l.append(AUS.chip('Libre (sin ausentes)', 'chip-normal'), AUS.chip('Con ausentes (aus.)', 'chip-precaucion'), AUS.chip('Algún equipo lleno', 'chip-critico'), AUS.chip('No hábil', 'chip-neutro'));
+      l.append(AUS.chip('Libre (sin diurnos ausentes)', 'chip-normal'), AUS.chip('Con diurnos ausentes (aus.)', 'chip-precaucion'), AUS.chip('Algún equipo lleno', 'chip-critico'), AUS.chip('No hábil', 'chip-neutro'));
     } else l.append(AUS.chip('Turnantes ausentes', 'chip-info'), AUS.chip('Feriado', 'chip-neutro'));
     return l;
   };
@@ -308,10 +312,11 @@
         const arr = lista.filter((a) => a.jornada === 'diurno' && a.equipo_id === e.id);
         if (arr.length) bloque(e.nombre + ' · ' + AUS.textoBloques(AUS.ocupacion(lista, e.id), e.cupo_diurno), arr);
       });
-      const t = lista.filter((a) => a.jornada === 'turnante');
-      if (t.length) bloque('Turnantes', t);
-      if (!lista.length) caja.append(AUS.h('p', { class: 'nota' }, 'Nadie ausente este día.'));
-    } else bloque('Turnantes ausentes', lista.filter((a) => a.jornada === 'turnante'));
+      if (!lista.some((a) => a.jornada === 'diurno')) caja.append(AUS.h('p', { class: 'nota' }, 'Ningún diurno ausente este día.'));
+    } else {
+      const u = vista.unidadId ? AUS.equipoPorId(data, vista.unidadId) : null;
+      bloque('Turnantes ausentes' + (u ? ' · ' + u.nombre : ''), AUS.turnantesDe(lista, vista));
+    }
     return caja;
   };
 })();

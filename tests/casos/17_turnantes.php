@@ -26,14 +26,14 @@ prueba('Se exige turno cargado: sin turno, con turno ajeno o sin reemplazo, se r
     lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'dias' => [['fecha' => '2026-12-11', 'turno' => 'largo', 'unidad_id' => eid($db, 'H7'), 'reemplazo' => 'X']]]), 422, 'turnos cargados');
 });
 
-prueba('FL de turnante: rango; se cubren todos sus turnos del rango; saldo = días hábiles del rango', function () {
+prueba('FL de turnante: rango; se cubren todos sus turnos del rango; si es fraccionado descuenta 1 por turno (regla del 20-11-2026)', function () {
     $db = nuevaDb();
     $t = mk($db, 'Tati Turno', 'turnante', null); $r1 = mk($db, 'Rita Uno', 'turnante', null); $r2 = mk($db, 'Dani Diurno', 'diurno', 'H7');
     $a = turno($db, '2026-12-12', 'largo', 'H7', $t); $b = turno($db, '2026-12-15', 'noche', 'H7', $t);
     lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-12', 'fecha_fin' => '2026-12-16', 'reemplazos' => [$a => $r1]]), 422, 'cubre');
     $s = crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-12', 'fecha_fin' => '2026-12-16', 'reemplazos' => [$a => $r1, $b => $r2]]);
     chequear($s['habiles'] === 2, 'dos turnos en la solicitud');
-    chequear(saldo_estado($db, $t, 2026)['FL']['disponible'] === 12.0, 'saldo: hábiles del 12 al 16 = 14, 15, 16 → 3 días');
+    chequear(saldo_estado($db, $t, 2026)['FL']['disponible'] === 13.0, 'fraccionado: 2 turnos → 2 días (antes: 3 días hábiles del rango)');
     lanza(fn() => crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-20', 'fecha_fin' => '2026-12-22']), 422, 'No tienes turnos');
 });
 

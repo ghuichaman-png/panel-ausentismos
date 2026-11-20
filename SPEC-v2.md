@@ -180,7 +180,10 @@ Fecha y hora, `funcionario_id` del actor, acción, solicitud o turno afectado, d
 - Se llevan dos saldos: **FL** y **ADM**. El período es el **año calendario** y **no se arrastra** lo no usado.
 - Al iniciar el año se asigna automáticamente **FL 15 y ADM 6** a cada persona activa. Coordinación puede **agregar días de FL en casos puntuales** (y ajustar cualquier saldo) con un motivo obligatorio, que queda auditado.
 - **Qué descuenta:**
-  - FL: **días hábiles** del rango, tanto para diurnos como para turnantes, aunque el turnante no tenga turno en todos esos días;
+  - FL (regla del 20-11-2026, ver §12.1):
+    - **bloque de vacaciones**: un FL cuyo rango tiene **10 o más días hábiles** descuenta los días hábiles (lunes a viernes sin festivos), también al turnante, aunque sus turnos caigan sábado o domingo;
+    - **fraccionado**: un FL más corto. El diurno descuenta sus días hábiles; el turnante, **1 por cada turno**, aunque sea sábado o domingo;
+    - los fraccionados son **máximo 5 días por año** (pendientes y autorizadas), para diurnos y turnantes; el resto del FL se toma en bloque. Se revisa al crear y al volver a autorizar;
   - ADM: 1 por día o turno completo, 0,5 por medio día o mitad de turno;
   - un FL que cruza el cambio de año descuenta de cada año sus propios días.
 - **Bloqueo:** si la solicitud supera el saldo disponible, **no se puede enviar**. El formulario dice cuántos días quedan. Coordinación puede registrarla "en nombre de" con un ajuste previo.
@@ -259,7 +262,7 @@ Se comportan según su configuración (§3.5), con las mismas reglas de cupo por
 - **Ingreso / activación:** RUT, PIN o código, y la casilla "computador compartido".
 - **Calendario** (pantalla principal):
   - mes con navegación;
-  - SegmentedControl "Mi equipo · Todos · Turnantes" (por defecto, el propio);
+  - SegmentedControl "Diurnos · Turnantes" (cambiado el 20-11-2026), cada uno con su selector: Diurnos → "Todos los equipos" o un equipo (por defecto, el propio; solo cuenta diurnos); Turnantes → "Todas las unidades" o una unidad (la del turno; por defecto, todas). Coordinación tiene las mismas opciones en su lista;
   - cada día hábil muestra el estado de **cada bloque** con una palabra ("Libre", "1 de 2", "Lleno") y las pendientes se distinguen;
   - al tocar un día se ve quién falta (nombre, tipo según su etiqueta pública y estado). Nunca RUT, calidad, teléfono ni justificaciones.
 - **"Pedir días"** (acción principal, siempre visible):
@@ -270,7 +273,7 @@ Se comportan según su configuración (§3.5), con las mismas reglas de cupo por
   - resumen en vivo: días hábiles, consumo por bloque, **saldo restante** y avisos de sobre cupo o saldo insuficiente;
   - confirmación con el código `AUS-aaaa-nnnn`.
 - **Mis solicitudes:** solo las propias, con estado, motivo de rechazo y "Anular" (dentro del plazo).
-- **Mis turnos:** próximos turnos propios y turnos que cubre.
+- **Mis turnos:** calendario mensual con los turnos propios (largo/noche) y los que cubre, con «Te cubren» y feriados; debajo, la lista de próximos turnos. No muestra la rotativa de otras personas (decisión del 20-11-2026).
 - **Mi perfil:** saldos FL y ADM del año (asignado, ajustes, usados, pendientes, disponibles), cambiar PIN y sesiones abiertas.
 
 ### 6.2 Coordinación
@@ -509,7 +512,7 @@ docs/                   análisis, propuesta, evaluación de Vital, plan
 
 ### 12.1 a 12.7 Interpretaciones confirmadas por ti (19-11-2026)
 
-1. **FL de turnante:** se pide por rango, el sistema lista sus turnos del rango, se exige al menos uno, se indica un reemplazo por turno y el saldo descuenta los días hábiles del rango.
+1. **FL de turnante:** se pide por rango, el sistema lista sus turnos del rango, se exige al menos uno y se indica un reemplazo por turno. *Cambiado el 20-11-2026:* si el rango tiene 10 o más días hábiles es bloque y descuenta los días hábiles; si es más corto es fraccionado y descuenta 1 por turno (también sábado o domingo). Máximo 5 días fraccionados al año, igual que los diurnos (§4.5).
 2. **ADM de turnante:** un turno completo descuenta 1 ADM; una mitad del turno, 0,5.
 3. **Diurnos en el calendario de turnos:** no tienen turnos propios. Aparecen solo cuando cubren uno. Para pedir días no necesitan turno cargado.
 4. **"Extra" al autorizar:** por defecto, sí, para el reemplazo; coordinación puede desmarcarlo.

@@ -85,12 +85,12 @@ prueba('FL que cruza de año: cada año descuenta sus propios días hábiles; si
     chequear(disp($db, $a, 'FL', 2027) === 12.0, '2027: 1, 4 y 5 ene = 3 días → quedan 12 (el 2027 parte de 15, sin arrastre)');
 });
 
-prueba('Turnantes: FL descuenta los días hábiles del rango; ADM media jornada 0,5 (SPEC-v2 §12.1 y §12.2)', function () {
+prueba('Turnantes: FL fraccionado descuenta 1 por turno; ADM media jornada 0,5 (SPEC-v2 §12.2; FL según la regla del 20-11-2026)', function () {
     $db = nuevaDb();
     $t = mk($db, 'Tati Turno', 'turnante', null); $p = mk($db, 'Pedro Reemplazo', 'turnante', null);
     $a = turno($db, '2026-12-12', 'largo', 'H7', $t); $b = turno($db, '2026-12-15', 'largo', 'H7', $t); $c = turno($db, '2026-12-20', 'largo', 'H7', $t);
     crear($db, ['funcionario_id' => $t, 'tipo' => 'FL', 'fecha_inicio' => '2026-12-12', 'fecha_fin' => '2026-12-15', 'reemplazos' => [$a => $p, $b => $p]]);
-    chequear(disp($db, $t, 'FL') === 13.0, 'rango sáb 12 a mar 15: hábiles 14 y 15 → 2 días');
+    chequear(disp($db, $t, 'FL') === 13.0, 'rango sáb 12 a mar 15 con 2 turnos → 2 días');
     crear($db, ['funcionario_id' => $t, 'tipo' => 'ADM', 'fraccion' => 'primera_mitad', 'turno_id' => $c, 'reemplazo_id' => $p]);
     chequear(disp($db, $t, 'ADM') === 5.5, 'ADM media jornada: 0,5');
 });
@@ -128,6 +128,7 @@ prueba('HTTP: «Mi saldo» para cada persona; coordinación ve y ajusta saldos',
     $anio = (int)date('Y');
     $r = $f->pedir('GET', 'saldos/mios');
     chequear(($r['json']['saldos']['FL']['disponible'] ?? null) == 15 && ($r['json']['anio'] ?? 0) === $anio, 'saldos/mios: FL 15 disponibles: ' . $r['raw']);
+    chequear(($r['json']['fl_fraccionado']['usado'] ?? null) == 0 && ($r['json']['fl_fraccionado']['maximo'] ?? null) == 5, 'saldos/mios: fraccionados usados 0 de 5');
     $k = entrar($app, $rc, $cc, '739104');
     $lista = $k->pedir('GET', 'coord/saldos')['json']['personas'] ?? [];
     $fila = array_values(array_filter($lista, fn($x) => $x['nombre'] === 'Funcionaria Prueba'))[0] ?? null;

@@ -7,7 +7,7 @@
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
   const S = { equipos: [], sec: 'hoy', cal: { mes: null, vista: null } };
 
-  const SECCIONES = [['hoy', 'Hoy'], ['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['sal', 'Saldos'], ['tip', 'Tipos'], ['eq', 'Equipos y cupos'], ['fer', 'Feriados'], ['aud', 'Registro de cambios'], ['exp', 'Exportar y respaldo']];
+  const SECCIONES = [['hoy', 'Hoy'], ['pend', 'Pendientes'], ['todas', 'Solicitudes'], ['cal', 'Calendario'], ['res', 'Resumen'], ['tur', 'Turnos'], ['hx', 'Horas extra'], ['nom', 'Nómina'], ['sal', 'Saldos'], ['tip', 'Tipos'], ['eq', 'Equipos'], ['fer', 'Feriados'], ['aud', 'Registro'], ['exp', 'Respaldo']];
 
   // ───────── Sesión (la de la persona; el ingreso está en la app principal) ─────────
   const api = AUS.api;
@@ -224,12 +224,15 @@
     c.mes = c.mes || AUS.hoyISO().slice(0, 7);
     const sel = h('select', { class: 'input', 'aria-label': 'Vista' },
       h('optgroup', { label: 'Equipos (diurnos)' }, S.equipos.filter((e) => e.activo && e.tiene_diurnos).map((e) => h('option', { value: 'e:' + e.id }, e.nombre))),
-      h('option', { value: 'todos' }, 'Todos los equipos'), h('option', { value: 'turn' }, 'Turnantes'));
+      h('option', { value: 'todos' }, 'Todos los equipos (diurnos)'),
+      h('optgroup', { label: 'Turnantes' }, h('option', { value: 'turn' }, 'Turnantes: todas las unidades'),
+        S.equipos.filter((e) => e.activo && e.tiene_turnantes).map((e) => h('option', { value: 'u:' + e.id }, 'Turnantes: ' + e.nombre))));
     sel.value = c.vista || sel.options[0].value;
     const titulo = h('h2', { 'aria-live': 'polite' });
     const grid = h('div'); const ley = h('div'); const det = h('div', { 'aria-live': 'polite' });
     let data = null, dia = null;
-    const vista = () => (sel.value === 'todos' ? { tipo: 'todos' } : sel.value === 'turn' ? { tipo: 'turn' } : { tipo: 'equipo', equipoId: +sel.value.slice(2) });
+    const vista = () => (sel.value === 'todos' ? { tipo: 'todos' } : sel.value === 'turn' ? { tipo: 'turn' }
+      : sel.value.startsWith('u:') ? { tipo: 'turn', unidadId: +sel.value.slice(2) } : { tipo: 'equipo', equipoId: +sel.value.slice(2) });
     const pintar = () => {
       titulo.textContent = AUS.mesTitulo(c.mes);
       AUS.calendario(grid, data, vista(), { seleccion: dia, onSelect: (f) => { dia = f; pintar(); } });

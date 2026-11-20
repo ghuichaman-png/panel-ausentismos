@@ -21,6 +21,7 @@ function cfg_defaults(): array
         'limite_envios_hora' => 10, 'limite_ip_auth_hora' => 300,
         'saldo_fl_anual' => 15, 'saldo_adm_anual' => 6,
         'fl_largo_dias_habiles' => 5, 'anticipacion_min_dias' => null, 'horizonte_max_dias' => null,
+        'fl_bloque_min_dias_habiles' => 10, 'fl_fraccionado_max_dias' => 5,
     ];
 }
 
