@@ -156,9 +156,30 @@ function turnos_de(PDO $db, int $fid, string $desde, string $hasta): array
     return array_map('turno_publico', $st->fetchAll());
 }
 
-/** «Mis turnos»: los propios desde hoy y los que me tocan cubrir. */
+/** «Mis turnos» en calendario mensual: solo mis turnos y los que cubro (pedido del 20-11-2026). */
+function turnos_mes(PDO $db, int $fid, string $mes): array
+{
+    if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $mes)) throw new ApiError('Mes inválido.', 422);
+    $desde = $mes . '-01';
+    $hasta = (new DateTimeImmutable($desde))->modify('last day of this month')->format('Y-m-d');
+    $st = $db->prepare(TURNO_SELECT . ' WHERE t.cubierto_por_id=? AND t.fecha BETWEEN ? AND ? ORDER BY t.fecha, t.tipo');
+    $st->execute([$fid, $desde, $hasta]);
+    $cubro = array_map('turno_publico', $st->fetchAll());
+    $fer = [];
+    $f = $db->prepare('SELECT fecha, nombre FROM feriados WHERE fecha BETWEEN ? AND ?');
+    $f->execute([$desde, $hasta]);
+    foreach ($f->fetchAll() as $r) $fer[$r['fecha']] = $r['nombre'];
+    return ['mes' => $mes, 'desde' => $desde, 'hasta' => $hasta, 'turnos' => turnos_de($db, $fid, $desde, $hasta), 'cubro' => $cubro, 'feriados' => $fer];
+}
+
+/** «Mis turnos»: los propios desde hoy y los que me tocan cubrir. Con ?mes=AAAA-MM, los de ese mes. */
 function h_turnos_mios(PDO $db, array $p, array $in): array
 {
+    if (isset($_GET['mes'])) {
+        $r = turnos_mes($db, yo(), (string)$_GET['mes']);
+        $r['feriados'] = (object)$r['feriados'];
+        return $r;
+    }
     $hoy = Reloj::hoy();
     $hasta = fecha_add($hoy, 120);
     $st = $db->prepare(TURNO_SELECT . ' WHERE t.cubierto_por_id=? AND t.fecha BETWEEN ? AND ? ORDER BY t.fecha, t.tipo');

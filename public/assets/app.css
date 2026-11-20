@@ -260,3 +260,4 @@ details > summary { cursor: pointer; min-height: 44px; display: flex; align-item
 @media (min-width: 1024px) { .tabs { padding: 0 var(--space-8); } }
 /* «Volver a la app»: el texto extra no es un elemento aparte del botón (evita el espacio doble) */
 @media (min-width: 768px) { .btn .solo-escritorio { display: contents; } }
+div.dia { cursor: default; }

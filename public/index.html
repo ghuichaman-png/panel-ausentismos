@@ -147,7 +147,15 @@
   <!-- Mis turnos -->
   <section id="v-turnos" class="vista oculto" aria-labelledby="h-turnos">
     <h1 id="h-turnos">Mis turnos</h1>
+    <div class="cal-ctrl">
+      <button type="button" class="btn" id="t-ant" aria-label="Mes anterior">‹</button>
+      <h2 id="t-titulo" aria-live="polite"></h2>
+      <button type="button" class="btn" id="t-sig" aria-label="Mes siguiente">›</button>
+      <button type="button" class="btn" id="t-hoy">Hoy</button>
+    </div>
     <p id="t-error" class="msg-error" role="alert"></p>
+    <div id="t-leyenda"></div>
+    <div id="t-grid"></div>
     <div id="t-mios" class="vista"></div>
     <div id="t-cubro" class="vista"></div>
   </section>

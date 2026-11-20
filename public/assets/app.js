@@ -390,8 +390,61 @@
 
   // ═══════════ Mis turnos ═══════════
   const ESTADO_TURNO = { normal: null, cubierto: ['Te cubren', 'chip-normal'], sin_cubrir: ['Ausente', 'chip-info'], cambio: ['Por cambio', 'chip-info'] };
-  async function abrirTurnos() {
+  // Calendario mensual con mis turnos y los que cubro (solo los propios; no muestra la rotativa de otras personas).
+  const TM = { mes: null, listo: false };
+  function pintarMisTurnos(r) {
+    $('t-titulo').textContent = AUS.mesTitulo(r.mes);
+    const porDia = {};
+    r.turnos.forEach((x) => (porDia[x.fecha] = porDia[x.fecha] || { mios: [], cubro: [] }).mios.push(x));
+    r.cubro.forEach((x) => (porDia[x.fecha] = porDia[x.fecha] || { mios: [], cubro: [] }).cubro.push(x));
+    const hoy = AUS.hoyISO();
+    const grid = h('div', { class: 'cal', 'aria-label': 'Mis turnos de ' + AUS.mesTitulo(r.mes) });
+    ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].forEach((d) => grid.append(h('div', { class: 'cal-cab', 'aria-hidden': 'true' }, d)));
+    const lead = (AUS.fecha(r.desde).getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) grid.append(h('div', { class: 'dia vacio', 'aria-hidden': 'true' }));
+    const ultimo = +r.hasta.slice(8, 10);
+    for (let n = 1; n <= ultimo; n++) {
+      const f = r.mes + '-' + String(n).padStart(2, '0');
+      const d = porDia[f] || { mios: [], cubro: [] };
+      const feriado = r.feriados[f];
+      const partes = [], aria = [];
+      let clase = '';
+      d.mios.forEach((x) => {
+        const e = ESTADO_TURNO[x.estado];
+        partes.push(h('span', { class: 'est' }, cap(x.tipo)));
+        if (e) partes.push(h('span', { class: 'sub' }, e[0]));
+        aria.push('turno ' + x.tipo + ' en ' + x.unidad + (e ? ' (' + e[0].toLowerCase() + ')' : ''));
+      });
+      d.cubro.forEach((x) => {
+        partes.push(h('span', { class: 'est' }, 'Cubro ' + x.tipo));
+        aria.push('cubro el turno ' + x.tipo + ' de ' + x.titular);
+      });
+      if (d.mios.length) clase = 'turn';
+      else if (d.cubro.length) clase = 'parcial';
+      else if (AUS.esFinde(f) || feriado) clase = 'nohabil';
+      if (feriado && !partes.length) partes.push(h('span', { class: 'sub' }, 'Feriado'));
+      grid.append(h('div', { class: 'dia ' + clase + (f === hoy ? ' hoy' : ''), role: 'group',
+        'aria-label': AUS.fmtLargo(f) + ': ' + (aria.length ? aria.join('; ') : 'sin turno') + (feriado ? ', feriado' : '') + (f === hoy ? ' (hoy)' : '') },
+        h('span', { class: 'num' }, n), ...partes));
+    }
+    vaciar($('t-grid')).append(grid);
+    vaciar($('t-leyenda')).append(h('div', { class: 'leyenda', 'aria-label': 'Leyenda' },
+      AUS.chip('Mi turno', 'chip-info'), AUS.chip('Turno que cubro', 'chip-precaucion'), AUS.chip('Fin de semana o feriado', 'chip-neutro')));
+  }
+  async function cargarCalTurnos() {
     $('t-error').textContent = '';
+    try { pintarMisTurnos(await api('turnos/mios', { params: { mes: TM.mes } })); }
+    catch (e) { $('t-error').textContent = e.message; }
+  }
+  async function abrirTurnos() {
+    if (!TM.listo) {
+      TM.listo = true;
+      TM.mes = AUS.hoyISO().slice(0, 7);
+      $('t-ant').onclick = () => { TM.mes = AUS.mesAdd(TM.mes, -1); cargarCalTurnos(); };
+      $('t-sig').onclick = () => { TM.mes = AUS.mesAdd(TM.mes, 1); cargarCalTurnos(); };
+      $('t-hoy').onclick = () => { TM.mes = AUS.hoyISO().slice(0, 7); cargarCalTurnos(); };
+    }
+    cargarCalTurnos();
     const mios = vaciar($('t-mios')), cubro = vaciar($('t-cubro'));
     try {
       const r = await api('turnos/mios');

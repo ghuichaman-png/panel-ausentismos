@@ -107,3 +107,24 @@ prueba('Migración 9: marca las FL que ya existían como bloque o fraccionado, s
     chequear($m[$r1['id']] === 'fraccionado' && $m[$r2['id']] === 'bloque', 'fraccionado y bloque: ' . json_encode($m));
     chequear(disp($db, $a, 'FL') === 12.0, 'el saldo no cambia');
 });
+
+// ── Mis turnos en calendario mensual (pedido del 20-11-2026): solo los turnos propios y los que cubre.
+
+prueba('Mis turnos por mes: trae solo mis turnos del mes y los que cubro, con los feriados', function () {
+    $db = nuevaDb();
+    $t = mk($db, 'Tito Turno', 'turnante', null); $o = mk($db, 'Olga Otra', 'turnante', null);
+    $a = turno($db, '2026-12-02', 'largo', 'H7', $t);
+    turno($db, '2026-12-05', 'noche', 'H7', $t);
+    turno($db, '2027-01-03', 'largo', 'H7', $t);          // otro mes
+    $deOlga = turno($db, '2026-12-09', 'largo', 'H7', $o); // de otra persona
+    turno($db, '2026-12-10', 'noche', 'H7', $o);
+    $db->prepare('UPDATE turnos SET cubierto_por_id=? WHERE id=?')->execute([$t, $deOlga]);   // Tito cubre a Olga el 9
+    $r = turnos_mes($db, $t, '2026-12');
+    chequear($r['mes'] === '2026-12' && $r['desde'] === '2026-12-01' && $r['hasta'] === '2026-12-31', 'rango del mes');
+    chequear(array_column($r['turnos'], 'fecha') === ['2026-12-02', '2026-12-05'], 'mis 2 turnos de diciembre: ' . json_encode(array_column($r['turnos'], 'fecha')));
+    chequear(array_column($r['cubro'], 'fecha') === ['2026-12-09'], 'cubro el del 9 (no el del 10)');
+    chequear(($r['feriados']['2026-12-08'] ?? '') === 'Inmaculada Concepción', 'incluye los feriados del mes');
+    $txt = json_encode($r, JSON_UNESCAPED_UNICODE);
+    chequear(!str_contains($txt, '2026-12-10'), 'no muestra turnos ajenos que no cubro');
+    lanza(fn() => turnos_mes($db, $t, '2026-13'), 422);
+});
